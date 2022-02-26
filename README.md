@@ -1,0 +1,2 @@
+# Temperatura
+Sensor Temperatura
