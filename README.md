@@ -1,4 +1,6 @@
-<img src="https://github.com/marcelomaurin/Temperatura/blob/main/imgs/superior.jpeg">
+<img heigh="300" width="300" src="https://github.com/marcelomaurin/Temperatura/blob/main/imgs/superior.jpeg">
+
+<img heigh="300" width="300" src="https://github.com/marcelomaurin/Temperatura/blob/main/imgs/superior.jpeg">
 
 
 # Portuguese
