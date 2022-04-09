@@ -26,6 +26,14 @@ This project aims to build an autonomous temperature sensor, which can be connec
 ### Project Website: 
 http://maurinsoft.com.br/index.php/sensor-de-temperatura/
 
+## license
+This software and hardware can be built for their own use free of charge, by companies and individuals, but cannot be assembled for sale.
+The equipment's firmware, as well as the software are open source, but cannot be modified.
+
+### Customizations
+Contact us for customization requests
+http://maurinsoft.com.br/index.php/fale-conosco/
+
 # Spanish
 ## Proyecto Sensor de Temperatura Arduino.
 Este proyecto tiene como objetivo construir un sensor de temperatura autónomo, que se pueda conectar a una PC, permitiendo la lectura de la temperatura ambiente.
@@ -33,11 +41,11 @@ Este proyecto tiene como objetivo construir un sensor de temperatura autónomo, 
 ### Sitio web del proyecto: 
 http://maurinsoft.com.br/index.php/sensor-de-temperatura/
 
-## license
-This software and hardware can be built for their own use free of charge, by companies and individuals, but cannot be assembled for sale.
-The equipment's firmware, as well as the software are open source, but cannot be modified.
+## licencia
+Este software y hardware pueden construirse para su propio uso de forma gratuita, por parte de empresas y particulares, pero no pueden ensamblarse para la venta.
+El firmware del equipo, así como el software son de código abierto, pero no se pueden modificar.
 
-### Customizations
-Contact us for customization requests
+### Personalizaciones
+Póngase en contacto con nosotros para solicitudes de personalización
 http://maurinsoft.com.br/index.php/fale-conosco/
 
