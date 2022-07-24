@@ -8,7 +8,7 @@ uses
   {$ENDIF}{$ENDIF}
   Interfaces, // this includes the LCL widgetset
   main,
-  Forms, LazSerialPort, indylaz, lnetbase, lnetvisual;
+  Forms, LazSerialPort, indylaz, lnetbase, lnetvisual, unit1;
 
 {$R *.res}
 
@@ -16,6 +16,7 @@ begin
   RequireDerivedFormResource:=True;
   Application.Scaled:=True;
   Application.Initialize;
+  Application.CreateForm(Tfrmmain, frmmain);
   Application.Run;
 end.
 
