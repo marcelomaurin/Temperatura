@@ -4,13 +4,17 @@
 #include <SPI.h>
 #include <Ethernet.h>
 #include <EEPROM.h>
+#include <SD.h>
+#include <EthernetUdp.h>
+#include <Dns.h>   // <-- ADD
 
-// ======== CONFIG PADRÃO (usado se EEPROM vazia) ========
-#define DEFAULT_USE_STATIC_IP  1  // 1 = IP fixo, 0 = DHCP
+// ======== DEFAULTS (EEPROM ausente) ========
+#define DEFAULT_USE_STATIC_IP  1
 const IPAddress DEFAULT_IP   (172, 17, 240, 253);
-const IPAddress DEFAULT_DNS  (172, 17, 240,  2);
-const IPAddress DEFAULT_GW   (172, 17, 240,  1);
-const IPAddress DEFAULT_MASK (255, 255, 252, 0);
+const IPAddress DEFAULT_DNS  (172, 17, 240,   2);
+const IPAddress DEFAULT_GW   (172, 17, 240,   1);
+const IPAddress DEFAULT_MASK (255, 255, 252,  0);
+const uint8_t  DEFAULT_MAC[6] = {0xDE,0xAD,0xBE,0xEF,0xFE,0xED};
 
 // ======== Pinos ========
 #define DHTPIN 6
@@ -18,14 +22,24 @@ const IPAddress DEFAULT_MASK (255, 255, 252, 0);
 const int PIN_BUZZER  = A11;
 const int PIN_BUZZ_G  = A8;
 const int PIN_LED     = 7;
+const int PIN_CS_ETH  = 10;
+const int PIN_CS_SD   = 4;
 
 // ======== Objetos ========
 DHT dht(DHTPIN, DHTTYPE);
 LiquidCrystal_I2C lcd(0x27, 16, 2);
-
-// MAC: altere p/ ser único na rede
-byte mac[] = {0xDE,0xAD,0xBE,0xEF,0xFE,0xED};
 EthernetServer server(8081);
+EthernetUDP Udp;
+
+// ======== NTP ========
+const char* NTP_SERVER = "a.st1.ntp.br"; // NTP Brasil
+const unsigned int NTP_LOCAL_PORT = 8888;
+const unsigned long NTP_INTERVAL_MS = 10UL * 60UL * 1000UL; // re-sync a cada 10 min
+unsigned long lastNtpSyncMs = 0;
+unsigned long epochAtLastSync = 0;  // epoch UTC
+unsigned long msAtLastSync = 0;
+
+// São Paulo UTC-3; vamos formatar no browser, então guardamos UTC aqui.
 
 // ======== Amostragem ========
 unsigned long lastSampleMs = 0;
@@ -50,237 +64,810 @@ struct NetConfig {
   uint8_t dns[4];
   uint8_t gw[4];
   uint8_t mask[4];
-  uint8_t checksum;    // soma simples de bytes (exceto checksum)
+  uint8_t mac[6];
+  uint8_t checksum;    // soma simples (exceto checksum)
 };
 const uint8_t CFG_MAGIC = 0x42;
 const int EEPROM_ADDR = 0;
 
 NetConfig cfg;
 
-uint8_t calcChecksum(const NetConfig &c) {
+// ======== SD / Log ========
+bool sdAvailable = false;
+char currentMonthFile[20] = {0}; // e.g., "LOG_202509.csv"
+
+
+bool resolveHostname(const char* host, IPAddress& outIP) {
+  DNSClient dns;
+  dns.begin(Ethernet.dnsServerIP());           // usa o DNS atual (estático ou DHCP)
+  int rc = dns.getHostByName(host, outIP);     // 1 = sucesso
+  return (rc == 1);
+}
+
+// ---------- Utils: EEPROM ----------
+uint8_t calcChecksum(const NetConfig &c){
   const uint8_t *p = (const uint8_t*)&c;
-  uint16_t s = 0;
-  for (size_t i = 0; i < sizeof(NetConfig)-1; i++) s += p[i];
+  uint16_t s=0;
+  for(size_t i=0;i<sizeof(NetConfig)-1;i++) s+=p[i];
   return (uint8_t)(s & 0xFF);
 }
-
-void loadDefaults(NetConfig &c) {
+void loadDefaults(NetConfig &c){
   c.magic = CFG_MAGIC;
   c.use_static = DEFAULT_USE_STATIC_IP ? 1 : 0;
-  for (int i=0;i<4;i++) {
-    c.ip[i]   = DEFAULT_IP[i];
-    c.dns[i]  = DEFAULT_DNS[i];
-    c.gw[i]   = DEFAULT_GW[i];
-    c.mask[i] = DEFAULT_MASK[i];
+  for(int i=0;i<4;i++){
+    c.ip[i]=DEFAULT_IP[i]; c.dns[i]=DEFAULT_DNS[i];
+    c.gw[i]=DEFAULT_GW[i]; c.mask[i]=DEFAULT_MASK[i];
   }
+  for(int i=0;i<6;i++) c.mac[i]=DEFAULT_MAC[i];
   c.checksum = calcChecksum(c);
 }
-
-bool loadConfig(NetConfig &c) {
+bool loadConfig(NetConfig &c){
   EEPROM.get(EEPROM_ADDR, c);
-  if (c.magic != CFG_MAGIC) return false;
-  if (c.checksum != calcChecksum(c)) return false;
+  if(c.magic!=CFG_MAGIC) return false;
+  if(c.checksum!=calcChecksum(c)) return false;
   return true;
 }
+void saveConfig(const NetConfig &c){ EEPROM.put(EEPROM_ADDR, c); }
 
-void saveConfig(const NetConfig &c) {
-  EEPROM.put(EEPROM_ADDR, c);
+// ---------- Utils: IP/MAC ----------
+String getQueryParam(const String& q, const String& k){
+  String pat=k+"="; int i=q.indexOf(pat); if(i<0) return "";
+  int j=q.indexOf('&', i+pat.length()); if(j<0) j=q.length();
+  String v=q.substring(i+pat.length(), j);
+  v.replace("+"," "); return v;
+}
+bool parseIp(const String &s, uint8_t out[4]){
+  int p1=s.indexOf('.'); int p2=s.indexOf('.',p1+1); int p3=s.indexOf('.',p2+1);
+  if(p1<0||p2<0||p3<0) return false;
+  long a=s.substring(0,p1).toInt(), b=s.substring(p1+1,p2).toInt();
+  long c=s.substring(p2+1,p3).toInt(), d=s.substring(p3+1).toInt();
+  if(a<0||a>255||b<0||b>255||c<0||c>255||d<0||d>255) return false;
+  out[0]=a; out[1]=b; out[2]=c; out[3]=d; return true;
+}
+int hexVal(char c){
+  if(c>='0'&&c<='9') return c-'0';
+  c|=0x20; if(c>='a'&&c<='f') return 10+(c-'a'); return -1;
+}
+bool parseMac(const String& s, uint8_t out[6]){
+  int n=0; int hi=-1,lo=-1; int i=0,len=s.length();
+  while(i<len && n<6){
+    while(i<len && (s[i]==':'||s[i]=='-'||s[i]==' ')) i++;
+    if(i>=len) break;
+    if(i<len){ hi=hexVal(s[i++]); } else return false;
+    if(i<len){ lo=hexVal(s[i++]); } else return false;
+    if(hi<0||lo<0) return false;
+    out[n++] = (uint8_t)((hi<<4)|lo);
+  }
+  return n==6;
+}
+void macToString(const uint8_t mac[6], char* buf, size_t sz){
+  snprintf(buf, sz, "%02X:%02X:%02X:%02X:%02X:%02X",
+    mac[0],mac[1],mac[2],mac[3],mac[4],mac[5]);
 }
 
-void applyNetworkFromConfig() {
+
+// ---------- Rede ----------
+void applyNetworkFromConfig(){
+  // linhas de controle SPI
+  pinMode(53, OUTPUT); digitalWrite(53, HIGH); // SS
+  pinMode(PIN_CS_ETH, OUTPUT);
+  pinMode(PIN_CS_SD,  OUTPUT);  digitalWrite(PIN_CS_SD, HIGH); // SD desabilitado por padrão
+
+  // MAC
+  uint8_t macLocal[6]; for(int i=0;i<6;i++) macLocal[i]=cfg.mac[i];
+
   if (cfg.use_static) {
     IPAddress ip  (cfg.ip[0],  cfg.ip[1],  cfg.ip[2],  cfg.ip[3]);
     IPAddress dns (cfg.dns[0], cfg.dns[1], cfg.dns[2], cfg.dns[3]);
     IPAddress gw  (cfg.gw[0],  cfg.gw[1],  cfg.gw[2],  cfg.gw[3]);
-    IPAddress mask(cfg.mask[0],cfg.mask[1],cfg.mask[2],cfg.mask[3]);
-    Ethernet.begin(mac, ip, dns, gw, mask);
+    IPAddress msk (cfg.mask[0],cfg.mask[1],cfg.mask[2],cfg.mask[3]);
+    Ethernet.begin(macLocal, ip, dns, gw, msk);
   } else {
-    if (Ethernet.begin(mac) == 0) {
-      // fallback simples caso DHCP falhe
-      IPAddress ip(192,168,1,177), dns(192,168,1,1), gw(192,168,1,1), mask(255,255,255,0);
-      Ethernet.begin(mac, ip, dns, gw, mask);
+    if (Ethernet.begin(macLocal) == 0) {
+      // Fallback solicitado
+      Ethernet.begin(macLocal, DEFAULT_IP, DEFAULT_DNS, DEFAULT_GW, DEFAULT_MASK);
     }
   }
   delay(500);
-  server.begin(); // garante que o server está ativo após reconfig
+  server.begin();
+
+  // UDP para NTP
+  Udp.begin(NTP_LOCAL_PORT);
 }
 
-void printIPToSerial() {
+// ---------- NTP ----------
+unsigned long getEpochUTC(){
+  // Caso não tenhamos sincronizado ainda, devolve estimativa por millis
+  if (epochAtLastSync == 0) return 0UL;
+  unsigned long secs = (millis() - msAtLastSync)/1000UL;
+  return epochAtLastSync + secs;
+}
+
+void sendNTPpacket(IPAddress& address) {
+  const int NTP_PACKET_SIZE = 48;
+  byte packetBuffer[NTP_PACKET_SIZE];
+  memset(packetBuffer, 0, NTP_PACKET_SIZE);
+  packetBuffer[0] = 0b11100011; // LI, Version, Mode
+  packetBuffer[1] = 0;   // Stratum
+  packetBuffer[2] = 6;   // Poll
+  packetBuffer[3] = 0xEC;// Precision
+  Udp.beginPacket(address, 123);
+  Udp.write(packetBuffer, NTP_PACKET_SIZE);
+  Udp.endPacket();
+}
+
+void ntpSyncNow(){
+  IPAddress timeServerIP;
+
+  // tenta resolver via DNS; se falhar, você pode colocar um fallback de IP fixo
+  if (!resolveHostname(NTP_SERVER, timeServerIP)) {
+    // Fallback opcional (um IP do pool/servidor NTP)
+    // timeServerIP = IPAddress(200,160,7,186); // exemplo
+  }
+
+  if (timeServerIP != IPAddress(0,0,0,0)) {
+    sendNTPpacket(timeServerIP);
+    delay(800);
+    int size = Udp.parsePacket();
+    if (size >= 48) {
+      byte buf[48];
+      Udp.read(buf, 48);
+      unsigned long secsSince1900 = (unsigned long)buf[40] << 24 |
+                                    (unsigned long)buf[41] << 16 |
+                                    (unsigned long)buf[42] << 8  |
+                                    (unsigned long)buf[43];
+      const unsigned long seventyYears = 2208988800UL;
+      unsigned long epochUTC = secsSince1900 - seventyYears;
+      epochAtLastSync = epochUTC;
+      msAtLastSync    = millis();
+    }
+  }
+
+  lastNtpSyncMs = millis();
+}
+
+// Constrói nome do arquivo a partir de YYYYMM numérico -> "LOG_YYYYMM.csv"
+void buildMonthFilename(int yyyymm, char* out, size_t sz) {
+  snprintf(out, sz, "LOG_%06d.csv", yyyymm);
+}
+
+// Pega YYYYMM (UTC) do epoch atual
+int currentYYYYMM(unsigned long epochUTC){
+  if (epochUTC == 0) return 0;
+  // Conversão simples epoch->ano/mes (mesma lógica já usada em updateMonthFileName)
+  unsigned long days = epochUTC / 86400UL;
+  int y = 1970;
+  unsigned long d = days;
+  while (true) {
+    bool leap = (y%4==0 && (y%100!=0 || y%400==0));
+    unsigned long diy = leap ? 366 : 365;
+    if (d >= diy) { d -= diy; y++; } else break;
+  }
+  int md[12] = {31,28,31,30,31,30,31,31,30,31,30,31};
+  bool leap = (y%4==0 && (y%100!=0 || y%400==0));
+  if (leap) md[1]=29;
+  int m=0;
+  while (m<12 && d >= (unsigned long)md[m]) { d -= md[m]; m++; }
+  return y*100 + (m+1); // YYYYMM
+}
+
+
+// ---------- LCD ----------
+void printIPToSerial(){
   Serial.print(F("IP: ")); Serial.print(Ethernet.localIP());
   Serial.print(F(" | GW: ")); Serial.print(Ethernet.gatewayIP());
   Serial.print(F(" | DNS: ")); Serial.print(Ethernet.dnsServerIP());
   Serial.print(F(" | Mask: ")); Serial.println(Ethernet.subnetMask());
   Serial.println(F("HTTP na porta 8081"));
 }
-
-void printIPLine() {
+void printIPLine(){
   IPAddress ip = Ethernet.localIP();
   char line[17];
-  snprintf(line, sizeof(line), "%u.%u.%u.%u", ip[0], ip[1], ip[2], ip[3]);
-  lcd.setCursor(0, 0);
-  lcd.print("                ");
-  lcd.setCursor(0, 0);
-  lcd.print(line);
+  snprintf(line,sizeof(line),"%u.%u.%u.%u",ip[0],ip[1],ip[2],ip[3]);
+  lcd.setCursor(0,0); lcd.print("                ");
+  lcd.setCursor(0,0); lcd.print(line);
+}
+void printTHLine(){
+  char line[17]; char tbuf[8], hbuf[8];
+  dtostrf(lastTemp,4,1,tbuf); dtostrf(lastHum,4,1,hbuf);
+  snprintf(line,sizeof(line),"T:%sC H:%s%%",tbuf,hbuf);
+  lcd.setCursor(0,1); lcd.print("                ");
+  lcd.setCursor(0,1); lcd.print(line);
 }
 
-void printTHLine() {
-  char line[17];
-  char tbuf[8], hbuf[8];
-  dtostrf(lastTemp, 4, 1, tbuf);
-  dtostrf(lastHum,  4, 1, hbuf);
-  snprintf(line, sizeof(line), "T:%sC H:%s%%", tbuf, hbuf);
-  lcd.setCursor(0, 1);
-  lcd.print("                ");
-  lcd.setCursor(0, 1);
-  lcd.print(line);
+// ---------- Buzzer ----------
+void beep(uint16_t f,uint16_t ms){ tone(PIN_BUZZER,f,ms); delay(ms+5); noTone(PIN_BUZZER); }
+void startupChime(){ beep(1200,120); beep(1600,120); beep(2000,160); }
+
+// ---------- SD ----------
+void updateMonthFileName(unsigned long epochUTC){
+  // yyyy mm a partir de epoch UTC (aprox simples; a página formata datas localmente)
+  // Para nome do arquivo, basta mês/ano aproximados pelo JS? Vamos calcular rapidamente:
+  // Implementação mínima: assumindo ano >= 2000
+  // Usaremos uma função simples para converter epoch -> y,m (UTC)
+  // (para o nome do arquivo, tanto faz UTC vs local)
+  unsigned long t = epochUTC;
+  if (t == 0) { strcpy(currentMonthFile, "LOG_unknown.csv"); return; }
+  // converter epoch->data simples (Calendário gregoriano) — implemento via algoritmo civil_from_days
+  // Para simplificar e evitar overkill, vamos extrair YYYYMM com base em média (não perfeito para séculos),
+  // mas o suficiente aqui: usaremos uma biblioteca? Não. Faremos no JS para exibição.
+  // Aqui vamos construir "LOG_YYYYMM.csv" com cálculo aproximado a partir de dias.
+  unsigned long days = t / 86400UL;
+  // 1970-01-01 é dia 0
+  // converte para ano/mes aproximado:
+  // tabela de dias por ano bissexto complica; em vez disso, faremos rolling:
+  int y = 1970;
+  unsigned long d = days;
+  while (true) {
+    bool leap = (y%4==0 && (y%100!=0 || y%400==0));
+    unsigned long diy = leap ? 366 : 365;
+    if (d >= diy) { d -= diy; y++; } else break;
+  }
+  int monthDays[12] = {31,28,31,30,31,30,31,31,30,31,30,31};
+  bool leap = (y%4==0 && (y%100!=0 || y%400==0));
+  if (leap) monthDays[1]=29;
+  int m=0;
+  while (m<12 && d >= (unsigned long)monthDays[m]) { d -= monthDays[m]; m++; }
+  // m: 0..11
+  char buf[20];
+  snprintf(buf, sizeof(buf), "LOG_%04d%02d.csv", y, m+1);
+  strcpy(currentMonthFile, buf);
 }
 
-void beep(uint16_t freq, uint16_t durMs) {
-  tone(PIN_BUZZER, freq, durMs);
-  delay(durMs + 5);
-  noTone(PIN_BUZZER);
+void sdInit(){
+  // desabilita Ethernet durante SD.begin para evitar conflito
+  digitalWrite(PIN_CS_ETH, HIGH);
+  sdAvailable = SD.begin(PIN_CS_SD);
+  if (!sdAvailable) {
+    Serial.println(F("SD nao detectado. Historico desativado."));
+  } else {
+    Serial.println(F("SD OK. Historico ativado."));
+  }
 }
 
-void startupChime() {
-  beep(1200, 120);
-  beep(1600, 120);
-  beep(2000, 160);
+// Append linha ao log do mês corrente
+void sdAppendLog(float t, float h){
+  if (!sdAvailable) return;
+  unsigned long epoch = getEpochUTC();
+  updateMonthFileName(epoch);
+  File f = SD.open(currentMonthFile, FILE_WRITE);
+  if (!f) return;
+  // CSV: epoch,temp,hum\n
+  f.print(epoch); f.print(',');
+  f.print(t,2);   f.print(',');
+  f.println(h,2);
+  f.close();
 }
 
-// ---- Utils HTTP/IP ----
-bool parseIp(const String &s, uint8_t out[4]) {
-  int p1 = s.indexOf('.');
-  int p2 = s.indexOf('.', p1+1);
-  int p3 = s.indexOf('.', p2+1);
-  if (p1<0||p2<0||p3<0) return false;
-  long a = s.substring(0, p1).toInt();
-  long b = s.substring(p1+1, p2).toInt();
-  long c = s.substring(p2+1, p3).toInt();
-  long d = s.substring(p3+1).toInt();
-  if (a<0||a>255||b<0||b>255||c<0||c>255||d<0||d>255) return false;
-  out[0]=a; out[1]=b; out[2]=c; out[3]=d; return true;
-}
+// Itera linhas do CSV e manda JSON filtrado
+void streamCsvAsJson(EthernetClient &client, unsigned long minEpoch, unsigned long maxEpoch,
+                     int yearMonth /* yyyymm or -1 for current+prev hours */) {
+  if (!sdAvailable) { client.println(F("[]")); return; }
 
-String getQueryParam(const String &query, const String &key) {
-  // procura "key=" e lê até '&' ou fim
-  String pat = key + "=";
-  int i = query.indexOf(pat);
-  if (i < 0) return "";
-  int j = query.indexOf('&', i + pat.length());
-  if (j < 0) j = query.length();
-  return query.substring(i + pat.length(), j);
-}
+  bool first = true;
+  client.print('[');
 
-void sendHtmlHeader(EthernetClient &client) {
-  client.println(F("HTTP/1.1 200 OK"));
-  client.println(F("Content-Type: text/html; charset=utf-8"));
-  client.println(F("Connection: close"));
-  client.println();
-}
-
-void sendJsonHeader(EthernetClient &client) {
-  client.println(F("HTTP/1.1 200 OK"));
-  client.println(F("Content-Type: application/json; charset=utf-8"));
-  client.println(F("Access-Control-Allow-Origin: *"));
-  client.println(F("Connection: close"));
-  client.println();
-}
-
-void sendNotFound(EthernetClient &client) {
-  client.println(F("HTTP/1.1 404 Not Found"));
-  client.println(F("Content-Type: text/plain; charset=utf-8"));
-  client.println(F("Connection: close"));
-  client.println();
-  client.println(F("404"));
-}
-
-void handleRootPage(EthernetClient &client, const String &query) {
-  bool changed = false;
-  NetConfig newCfg = cfg;
-
-  if (query.length() > 0) {
-    String v_static = getQueryParam(query, "use_static");
-    String v_ip     = getQueryParam(query, "ip");
-    String v_dns    = getQueryParam(query, "dns");
-    String v_gw     = getQueryParam(query, "gw");
-    String v_mask   = getQueryParam(query, "mask");
-
-    if (v_static.length()) {
-      newCfg.use_static = (uint8_t)(v_static.toInt() ? 1 : 0);
-      changed = true;
+  auto streamFile = [&](const char* fname){
+    File f = SD.open(fname, FILE_READ);
+    if (!f) return;
+    String line;
+    while (f.available()) {
+      char c = f.read();
+      if (c=='\n' || c=='\r') {
+        if (line.length()>0) {
+          // parse "epoch,temp,hum"
+          int p1 = line.indexOf(',');
+          int p2 = line.indexOf(',', p1+1);
+          if (p1>0 && p2>p1) {
+            unsigned long e = line.substring(0,p1).toInt();
+            if ((minEpoch==0 || e>=minEpoch) && (maxEpoch==0 || e<=maxEpoch)) {
+              String st = line.substring(p1+1, p2);
+              String sh = line.substring(p2+1);
+              if (!first) client.print(',');
+              client.print(F("{\"epoch\":")); client.print(e);
+              client.print(F(",\"temperature\":")); client.print(st);
+              client.print(F(",\"humidity\":")); client.print(sh);
+              client.print('}');
+              first=false;
+            }
+          }
+          line = "";
+        }
+      } else {
+        line += c;
+      }
     }
-    uint8_t tmp[4];
-    if (v_ip.length()   && parseIp(v_ip,   tmp)) { memcpy(newCfg.ip,   tmp, 4); changed = true; }
-    if (v_dns.length()  && parseIp(v_dns,  tmp)) { memcpy(newCfg.dns,  tmp, 4); changed = true; }
-    if (v_gw.length()   && parseIp(v_gw,   tmp)) { memcpy(newCfg.gw,   tmp, 4); changed = true; }
-    if (v_mask.length() && parseIp(v_mask, tmp)) { memcpy(newCfg.mask, tmp, 4); changed = true; }
+    f.close();
+  };
 
-    if (changed) {
-      newCfg.magic = CFG_MAGIC;
-      newCfg.checksum = calcChecksum(newCfg);
-      cfg = newCfg;
-      saveConfig(cfg);
-      applyNetworkFromConfig(); // aplica imediatamente
+  if (yearMonth > 0) {
+    char fname[20];
+    snprintf(fname, sizeof(fname), "LOG_%06d.csv", yearMonth); // e.g., 202509
+    streamFile(fname);
+  } else {
+    // hours window: pode cruzar mês, então abrimos o arquivo do mês atual e o anterior
+    unsigned long nowEpoch = getEpochUTC();
+    updateMonthFileName(nowEpoch);
+    char cur[20]; strcpy(cur, currentMonthFile);
+
+    // arquivo do mês anterior
+    // cálculo simples: subtrai ~31 dias e gera nome
+    unsigned long prevEpoch = nowEpoch - 31UL*86400UL;
+    updateMonthFileName(prevEpoch);
+    char prev[20]; strcpy(prev, currentMonthFile);
+
+    // restaura current name para não bagunçar var global
+    updateMonthFileName(nowEpoch);
+
+    // processa anterior, depois atual (ordem crescente no JSON)
+    streamFile(prev);
+    streamFile(cur);
+  }
+
+  client.println(']');
+}
+
+// ---------- Páginas ----------
+void sendHtmlHeader(EthernetClient &c){
+  c.println(F("HTTP/1.1 200 OK"));
+  c.println(F("Content-Type: text/html; charset=utf-8"));
+  c.println(F("Connection: close"));
+  c.println();
+}
+void sendJsonHeader(EthernetClient &c){
+  c.println(F("HTTP/1.1 200 OK"));
+  c.println(F("Content-Type: application/json; charset=utf-8"));
+  c.println(F("Access-Control-Allow-Origin: *"));
+  c.println(F("Connection: close"));
+  c.println();
+}
+void sendNotFound(EthernetClient &c){
+  c.println(F("HTTP/1.1 404 Not Found"));
+  c.println(F("Content-Type: text/plain; charset=utf-8"));
+  c.println(F("Connection: close"));
+  c.println(); c.println(F("404"));
+}
+
+void handleRootPage(EthernetClient &client, const String &query){
+  bool changed=false; NetConfig newCfg=cfg;
+
+  if(query.length()>0){
+    String v_mode  = getQueryParam(query,"mode"); // dhcp | static
+    String v_stat  = getQueryParam(query,"use_static");
+    if (v_mode.length()){
+      if (v_mode=="dhcp")  { newCfg.use_static=0; changed=true; }
+      if (v_mode=="static"){ newCfg.use_static=1; changed=true; }
+    } else if (v_stat.length()){
+      newCfg.use_static = (uint8_t)(v_stat.toInt()?1:0); changed=true;
+    }
+    String v_ip   = getQueryParam(query,"ip");
+    String v_dns  = getQueryParam(query,"dns");
+    String v_gw   = getQueryParam(query,"gw");
+    String v_mask = getQueryParam(query,"mask");
+    uint8_t tmp4[4];
+    if(v_ip.length()   && parseIp(v_ip,tmp4))   { memcpy(newCfg.ip,tmp4,4);   changed=true; }
+    if(v_dns.length()  && parseIp(v_dns,tmp4))  { memcpy(newCfg.dns,tmp4,4);  changed=true; }
+    if(v_gw.length()   && parseIp(v_gw,tmp4))   { memcpy(newCfg.gw,tmp4,4);   changed=true; }
+    if(v_mask.length() && parseIp(v_mask,tmp4)) { memcpy(newCfg.mask,tmp4,4); changed=true; }
+    String v_mac = getQueryParam(query,"mac");
+    uint8_t tmp6[6];
+    if(v_mac.length() && parseMac(v_mac,tmp6)) { memcpy(newCfg.mac,tmp6,6); changed=true; }
+
+    if(changed){
+      newCfg.magic=CFG_MAGIC; newCfg.checksum=calcChecksum(newCfg);
+      cfg=newCfg; saveConfig(cfg);
+      applyNetworkFromConfig(); // reconfig net
     }
   }
 
-  // Página HTML simples com form (GET)
   sendHtmlHeader(client);
-  client.println(F("<!doctype html><html><head><meta charset='utf-8'><title>Monitor Temperatura</title>"
-                   "<meta name='viewport' content='width=device-width,initial-scale=1'>"
-                   "<style>body{font-family:system-ui;margin:20px}input{padding:6px;margin:4px 0}label{display:block;margin-top:8px}"
-                   "button{padding:8px 14px} .card{border:1px solid #ddd;padding:14px;border-radius:8px;max-width:420px}"
-                   ".row{display:flex;gap:12px} .row>div{flex:1}</style></head><body>"));
-  client.println(F("<h2>Equipamento de Monitoramento</h2>"));
+  client.println(F(
+    "<!doctype html><html lang='pt-br'><head><meta charset='utf-8'>"
+    "<meta name='viewport' content='width=device-width, initial-scale=1'>"
+    "<title>Monitor de Temperatura</title>"
+    "<link href='https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css' rel='stylesheet'>"
+    "<style>"
+    "body{background:#f6f7fb}"
+    ".navbar{background:#0d6efd}.navbar-brand{color:#fff!important;font-weight:600}"
+    ".sidebar{min-height:100vh;background:#fff;border-right:1px solid #e5e7eb}"
+    ".sidebar .nav-link{color:#0d6efd;font-weight:500}"
+    ".sidebar .nav-link.active{background:#e7f1ff;border-radius:.5rem}"
+    ".card{border-radius:.75rem}"
+    "</style></head><body>"));
 
-  // Status T/H
-  client.print(F("<div class='card'><h3>Leitura atual</h3><p>Temperatura: "));
-  if (isnan(lastTemp)) client.print(F("--"));
-  else { client.print(lastTemp,1); client.print(F(" &deg;C")); }
-  client.print(F("<br>Umidade: "));
-  if (isnan(lastHum)) client.print(F("--"));
-  else { client.print(lastHum,1); client.print(F("% RH")); }
-  client.println(F("</p></div><br>"));
+  client.println(F(
+    "<nav class='navbar navbar-expand-lg'><div class='container-fluid'>"
+    "<a class='navbar-brand' href='#'>Equipamento de Monitoramento</a>"
+    "</div></nav>"));
 
-  // Form de configuração
-  client.println(F("<div class='card'><h3>Configura&ccedil;&atilde;o de Rede</h3>"
-                   "<form method='GET' action='/'>"));
+  client.println(F("<div class='container-fluid'><div class='row'>"));
 
-  client.print(F("<label>USE_STATIC_IP (0 ou 1): <input name='use_static' value='"));
-  client.print(cfg.use_static ? 1 : 0);
-  client.println(F("'></label>"));
+  // -------- Sidebar (UMA ÚNICA VEZ, sem duplicações) --------
+  client.println(F(
+    "<aside class='col-12 col-md-3 col-lg-2 p-3 sidebar'>"
+      "<ul class='nav nav-pills flex-column'>"
+        "<li class='nav-item'><a class='nav-link active' href='#status'>Status</a></li>"
+        "<li class='nav-item'><a class='nav-link' href='#rede'>Rede</a></li>"
+        "<li class='nav-item'><a class='nav-link' href='/historico'>Hist&oacute;rico</a></li>"
+        "<li class='nav-item'><a class='nav-link' href='/export'>Exportar</a></li>"
+        "<li class='nav-item'><a class='nav-link' href='/ws/temperatura' target='_blank'>JSON</a></li>"
+      "</ul>"
+    "</aside>"
+  ));
 
-  auto printIPField = [&](const char* name, const uint8_t a[4]){
-    client.print(F("<label>"));
-    client.print(name);
-    client.print(F(": <input name='"));
+  // -------- Conteúdo --------
+  client.println(F("<main class='col-12 col-md-9 col-lg-10 p-4'>"));
+
+  // Status
+  client.println(F("<section id='status' class='mb-4'>"
+    "<div class='card shadow-sm'><div class='card-body'>"
+    "<h5 class='card-title mb-3'>Status</h5>"
+    "<div class='row g-3'>"
+      "<div class='col-12 col-md-6'>"
+        "<div class='p-3 bg-light rounded'>"
+          "<div class='text-muted small'>Temperatura</div>"
+          "<div class='display-6' id='temp_val'>-- &deg;C</div>"
+        "</div>"
+      "</div>"
+      "<div class='col-12 col-md-6'>"
+        "<div class='p-3 bg-light rounded'>"
+          "<div class='text-muted small'>Umidade</div>"
+          "<div class='display-6' id='hum_val'>-- %</div>"
+        "</div>"
+      "</div>"
+    "</div>"
+    "<div class='mt-3 text-muted'>JSON em <code>/ws/temperatura</code>.</div>"
+    "</div></div></section>"));
+
+  // Form de Rede
+  char macStr[18]; macToString(cfg.mac, macStr, sizeof(macStr));
+  client.println(F("<section id='rede'><div class='card shadow-sm'><div class='card-body'>"
+    "<h5 class='card-title mb-3'>Configura&ccedil;&atilde;o de Rede</h5>"
+    "<form method='GET' action='/'>"));
+
+  client.println(F("<div class='mb-3'>"
+    "<label class='form-label'>Modo de Endere&ccedil;amento</label>"
+    "<div class='form-check'>"
+      "<input class='form-check-input' type='radio' name='mode' id='mode_dhcp' value='dhcp'>"
+      "<label class='form-check-label' for='mode_dhcp'>DHCP (autom&aacute;tico)</label>"
+    "</div>"
+    "<div class='form-check'>"
+      "<input class='form-check-input' type='radio' name='mode' id='mode_static' value='static'>"
+      "<label class='form-check-label' for='mode_static'>Est&aacute;tico (manual)</label>"
+    "</div></div>"));
+
+  client.print(F("<div class='mb-3'><label class='form-label'>MAC (AA:BB:CC:DD:EE:FF)</label>"
+                 "<input class='form-control' name='mac' value='"));
+  client.print(macStr);
+  client.println(F("'></div>"));
+
+  auto ipField=[&](const char* label,const char* name,const uint8_t a[4]){
+    client.print(F("<div class='mb-3 ipset'><label class='form-label'>"));
+    client.print(label);
+    client.print(F("</label><input class='form-control' name='"));
     client.print(name);
     client.print(F("' value='"));
     client.print(a[0]); client.print('.');
     client.print(a[1]); client.print('.');
     client.print(a[2]); client.print('.');
     client.print(a[3]);
-    client.println(F("'></label>"));
+    client.println(F("'></div>"));
   };
+  ipField("IP",   "ip",   cfg.ip);
+  ipField("DNS",  "dns",  cfg.dns);
+  ipField("Gateway","gw", cfg.gw);
+  ipField("Mask", "mask", cfg.mask);
 
-  printIPField("ip",   cfg.ip);
-  printIPField("dns",  cfg.dns);
-  printIPField("gw",   cfg.gw);
-  printIPField("mask", cfg.mask);
+  client.println(F("<button class='btn btn-primary' type='submit'>Salvar & Aplicar</button>"
+                   "</form>"
+                   "<div class='mt-3 text-muted small'>Se DHCP estiver ativo e falhar, o equipamento usar&aacute; 172.17.240.253 automaticamente.</div>"
+                   "</div></div></section>"));
 
-  client.println(F("<button type='submit'>Salvar & Aplicar</button>"));
-  client.println(F("</form></div><p style='color:#555'>Acesse JSON em <code>/ws/temperatura</code>.</p>"));
+  // Rodapé
+  client.print(F("<div class='text-muted mt-4'>Rodando em "));
+  IPAddress ip = Ethernet.localIP(); client.print(ip);
+  client.println(F(":8081</div>"));
 
-  // Info de serviço
-  client.print(F("<p>Rodando em "));
-  IPAddress ip = Ethernet.localIP();
-  client.print(ip);
-  client.println(F(":8081</p>"));
-
-  client.println(F("</body></html>"));
+  client.println(F(
+    "</main></div></div>"
+    "<script src='https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js'></script>"
+    "<script>"
+    "const isDhcp = ")); client.print(cfg.use_static ? F("false") : F("true")); client.println(F(";"
+    "document.getElementById('mode_dhcp').checked = isDhcp;"
+    "document.getElementById('mode_static').checked = !isDhcp;"
+    "function toggleFields(){const dh=document.getElementById('mode_dhcp').checked;"
+      "document.querySelectorAll('.ipset input').forEach(el=>el.disabled=dh);}"
+    "document.getElementById('mode_dhcp').addEventListener('change',toggleFields);"
+    "document.getElementById('mode_static').addEventListener('change',toggleFields);"
+    "toggleFields();"
+    "async function refreshTH(){try{const r=await fetch('/ws/temperatura',{cache:'no-store'});"
+      "if(!r.ok)return;const j=await r.json();"
+      "document.getElementById('temp_val').innerHTML=(j.temperature==null?'--':j.temperature.toFixed(1))+' &deg;C';"
+      "document.getElementById('hum_val').innerHTML=(j.humidity==null?'--':j.humidity.toFixed(1))+' %';}catch(e){}}"
+    "refreshTH();setInterval(refreshTH,3000);"
+    "</script></body></html>"
+  ));
 }
 
-void handleJson(EthernetClient &client) {
+
+void handleHistoricoPage(EthernetClient &client){
+  sendHtmlHeader(client);
+  client.println(F(
+    "<!doctype html><html lang='pt-br'><head><meta charset='utf-8'>"
+    "<meta name='viewport' content='width=device-width, initial-scale=1'>"
+    "<title>Hist&oacute;rico</title>"
+    "<link href='https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css' rel='stylesheet'>"
+    "<script src='https://cdn.jsdelivr.net/npm/chart.js@4.4.1'></script>"
+    "<style>"
+      "body{background:#f6f7fb}"
+      ".navbar{background:#0d6efd}.navbar-brand{color:#fff!important;font-weight:600}"
+      ".sidebar{min-height:100vh;background:#fff;border-right:1px solid #e5e7eb}"
+      ".sidebar .nav-link{color:#0d6efd;font-weight:500}"
+      ".sidebar .nav-link.active{background:#e7f1ff;border-radius:.5rem}"
+      ".card{border-radius:.75rem}"
+      ".graph-box{height:400px;}"
+    "</style></head><body>"));
+
+  // Navbar
+  client.println(F(
+    "<nav class='navbar navbar-expand-lg'><div class='container-fluid'>"
+      "<a class='navbar-brand' href='#'>Equipamento de Monitoramento</a>"
+    "</div></nav>"
+    "<div class='container-fluid'><div class='row'>"));
+
+  // Sidebar (mesma do Status)
+  client.println(F(
+    "<aside class='col-12 col-md-3 col-lg-2 p-3 sidebar'>"
+      "<ul class='nav nav-pills flex-column'>"
+        "<li class='nav-item'><a class='nav-link' href='/?#status'>Status</a></li>"
+        "<li class='nav-item'><a class='nav-link' href='/?#rede'>Rede</a></li>"
+        "<li class='nav-item'><a class='nav-link active' href='/historico'>Hist&oacute;rico</a></li>"
+        "<li class='nav-item'><a class='nav-link' href='/export'>Exportar</a></li>"
+        "<li class='nav-item'><a class='nav-link' href='/ws/temperatura' target='_blank'>JSON</a></li>"
+      "</ul>"
+    "</aside>"));
+
+  // Main
+  client.println(F("<main class='col-12 col-md-9 col-lg-10 p-4'>"
+    "<h3 class='mb-3'>Hist&oacute;rico</h3>"));
+
+  if (!sdAvailable) {
+    client.println(F(
+      "<div class='alert alert-warning'>Cart&atilde;o SD n&atilde;o detectado. "
+      "Os gr&aacute;ficos ser&atilde;o exibidos vazios at&eacute; que o SD seja inserido e o log seja gravado.</div>"
+    ));
+  }
+
+  client.println(F(
+    "<div class='row g-3 mb-3'>"
+      "<div class='col-12 col-md-3'><input id='yyyymm' class='form-control' placeholder='YYYY-MM'></div>"
+      "<div class='col-12 col-md-3'><button id='btnMes' class='btn btn-primary w-100'>Carregar M&ecirc;s</button></div>"
+    "</div>"
+
+    "<div class='card mb-3'><div class='card-body'>"
+      "<h5>Temperatura x Tempo (24h)</h5>"
+      "<div class='graph-box'><canvas id='chartT'></canvas></div>"
+    "</div></div>"
+
+    "<div class='card'><div class='card-body'>"
+      "<h5>Umidade x Tempo (24h)</h5>"
+      "<div class='graph-box'><canvas id='chartH'></canvas></div>"
+    "</div></div>"
+
+    "<p class='text-muted mt-3'>Hor&aacute;rio exibido em <code>America/Sao_Paulo</code>.</p>"
+    "</main></div></div>" // fecha main/row/container
+  ));
+
+  // Scripts
+  client.println(F(
+    "<script src='https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js'></script>"
+    "<script>"
+    "let tz='America/Sao_Paulo';"
+    "const fmt = ts => new Date(ts*1000).toLocaleString('pt-BR',{timeZone:tz});"
+    "const toSeries = arr => ({labels: arr.map(x=>fmt(x.epoch)), t: arr.map(x=>x.temperature), h: arr.map(x=>x.humidity)});"
+
+    "const chartOptions={"
+      "responsive:true,maintainAspectRatio:false,"
+      "interaction:{mode:'index',intersect:false},"
+      "scales:{x:{type:'category'}, y:{beginAtZero:false}},"
+      "elements:{point:{radius:2}},plugins:{legend:{display:true}}"
+    "};"
+
+    "const gT=new Chart(document.getElementById('chartT'),{type:'line',"
+      "data:{labels:[],datasets:[{label:'Temperatura (°C)',borderColor:'#dc3545',backgroundColor:'rgba(220,53,69,0.2)',data:[]}]},"
+      "options:chartOptions});"
+
+    "const gH=new Chart(document.getElementById('chartH'),{type:'line',"
+      "data:{labels:[],datasets:[{label:'Umidade (%RH)',borderColor:'#0d6efd',backgroundColor:'rgba(13,110,253,0.2)',data:[]}]},"
+      "options:chartOptions});"
+
+    "async function load24h(){"
+      "try{const r=await fetch('/ws/log?hours=24',{cache:'no-store'}); if(!r.ok)return;"
+          "const j=await r.json(); const d=toSeries(j);"
+          "gT.data.labels=d.labels; gT.data.datasets[0].data=d.t; gT.update();"
+          "gH.data.labels=d.labels; gH.data.datasets[0].data=d.h; gH.update();"
+      "}catch(e){}}"
+
+    "document.getElementById('btnMes').addEventListener('click',async()=>{"
+      "const y=document.getElementById('yyyymm').value.trim();"
+      "if(!/^\\d{4}-\\d{2}$/.test(y)){alert('Use YYYY-MM');return;}"
+      "const ym=y.replace('-','');"
+      "try{const r=await fetch('/ws/log?yyyymm='+ym,{cache:'no-store'});"
+          "if(!r.ok){alert('Sem dados para o m&ecirc;s.');return;}"
+          "const j=await r.json(); const d=toSeries(j);"
+          "gT.data.labels=d.labels; gT.data.datasets[0].data=d.t; gT.update();"
+          "gH.data.labels=d.labels; gH.data.datasets[0].data=d.h; gH.update();"
+      "}catch(e){}});"
+
+    "load24h();"
+    "</script></body></html>"
+  ));
+}
+
+
+void handleExportPage(EthernetClient &client){
+  sendHtmlHeader(client);
+  client.println(F(
+    "<!doctype html><html lang='pt-br'><head><meta charset='utf-8'>"
+    "<meta name='viewport' content='width=device-width, initial-scale=1'>"
+    "<title>Exportar / Limpar</title>"
+    "<link href='https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css' rel='stylesheet'>"
+    "<style>"
+      "body{background:#f6f7fb}"
+      ".navbar{background:#0d6efd}.navbar-brand{color:#fff!important;font-weight:600}"
+      ".sidebar{min-height:100vh;background:#fff;border-right:1px solid #e5e7eb}"
+      ".sidebar .nav-link{color:#0d6efd;font-weight:500}"
+      ".sidebar .nav-link.active{background:#e7f1ff;border-radius:.5rem}"
+      ".card{border-radius:.75rem}"
+    "</style></head><body>"));
+
+  // Navbar
+  client.println(F(
+    "<nav class='navbar navbar-expand-lg'><div class='container-fluid'>"
+      "<a class='navbar-brand' href='#'>Equipamento de Monitoramento</a>"
+    "</div></nav>"
+    "<div class='container-fluid'><div class='row'>"));
+
+  // Sidebar (mesma do Status)
+  client.println(F(
+    "<aside class='col-12 col-md-3 col-lg-2 p-3 sidebar'>"
+      "<ul class='nav nav-pills flex-column'>"
+        "<li class='nav-item'><a class='nav-link' href='/?#status'>Status</a></li>"
+        "<li class='nav-item'><a class='nav-link' href='/?#rede'>Rede</a></li>"
+        "<li class='nav-item'><a class='nav-link' href='/historico'>Hist&oacute;rico</a></li>"
+        "<li class='nav-item'><a class='nav-link active' href='/export'>Exportar</a></li>"
+        "<li class='nav-item'><a class='nav-link' href='/ws/temperatura' target='_blank'>JSON</a></li>"
+      "</ul>"
+    "</aside>"));
+
+  // Main
+  client.println(F("<main class='col-12 col-md-9 col-lg-10 p-4'>"
+    "<h3 class='mb-3'>Exportar / Limpar SD</h3>"));
+
+  if (!sdAvailable) {
+    client.println(F("<div class='alert alert-warning'>Cart&atilde;o SD n&atilde;o detectado. "
+                     "Exportar e Limpar n&atilde;o est&atilde;o dispon&iacute;veis.</div>"));
+  }
+
+  client.println(F(
+    "<div class='card'><div class='card-body'>"
+      "<div class='row g-3 align-items-end'>"
+        "<div class='col-12 col-md-3'>"
+          "<label class='form-label'>M&ecirc;s (YYYY-MM)</label>"
+          "<input id='yyyymm' class='form-control' placeholder='YYYY-MM'>"
+          "<div class='form-text'>Deixe vazio para usar o m&ecirc;s atual.</div>"
+        "</div>"
+        "<div class='col-12 col-md-3'>"
+          "<a id='btnDown' class='btn btn-success w-100'>Baixar CSV</a>"
+        "</div>"
+        "<div class='col-12 col-md-3'>"
+          "<a id='btnClr' class='btn btn-danger w-100'>Limpar SD (m&ecirc;s)</a>"
+        "</div>"
+        "<div class='col-12 col-md-3'>"
+          "<a class='btn btn-secondary w-100' href='/historico'>Ir ao Hist&oacute;rico</a>"
+        "</div>"
+      "</div>"
+    "</div></div>"));
+
+  client.println(F(
+    "</main></div></div>" // fecha main/row/container
+    "<script src='https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js'></script>"
+    "<script>"
+    "function ymNow(){const d=new Date();const m=('0'+(d.getUTCMonth()+1)).slice(-2);return d.getUTCFullYear()+'-'+m;}"
+    "const sdOK = ")); client.print(sdAvailable ? F("true") : F("false")); client.println(F(";"
+    "const input=document.getElementById('yyyymm'); input.value = ymNow();"
+    "function yyyymmParam(){const v=input.value.trim(); if(!v) return '';"
+      "if(!/^\\d{4}-\\d{2}$/.test(v)){alert('Use YYYY-MM');return null;}"
+      "return v.replace('-','');}"
+    "document.getElementById('btnDown').addEventListener('click',()=>{"
+      "if(!sdOK){alert('SD indispon&iacute;vel');return;}"
+      "const ym=yyyymmParam(); if(ym===null) return;"
+      "const url = ym ? ('/ws/csv?yyyymm='+ym) : '/ws/csv';"
+      "window.location.href = url;"
+    "});"
+    "document.getElementById('btnClr').addEventListener('click',()=>{"
+      "if(!sdOK){alert('SD indispon&iacute;vel');return;}"
+      "if(!confirm('Apagar arquivo do m&ecirc;s selecionado?')) return;"
+      "const ym=yyyymmParam(); if(ym===null) return;"
+      "const url = ym ? ('/ws/clear?yyyymm='+ym) : '/ws/clear';"
+      "window.location.href = url;"
+    "});"
+    "</script></body></html>"
+  ));
+}
+
+
+void handleCsvDownload(EthernetClient &client, const String &query){
+  if (!sdAvailable) { sendNotFound(client); return; }
+
+  String v_ym = getQueryParam(query, "yyyymm");
+  char fname[20];
+
+  if (v_ym.length() == 6) {
+    int yyyymm = v_ym.toInt();
+    buildMonthFilename(yyyymm, fname, sizeof(fname));
+  } else {
+    // mês atual
+    int yyyymm = currentYYYYMM(getEpochUTC());
+    if (yyyymm == 0) { sendNotFound(client); return; }
+    buildMonthFilename(yyyymm, fname, sizeof(fname));
+  }
+
+  File f = SD.open(fname, FILE_READ);
+  if (!f) { sendNotFound(client); return; }
+
+  // Cabeçalhos de download
+  client.println(F("HTTP/1.1 200 OK"));
+  client.println(F("Content-Type: text/csv; charset=utf-8"));
+  client.print (F("Content-Disposition: attachment; filename=\""));
+  client.print(fname);
+  client.println(F("\""));
+  client.println(F("Connection: close"));
+  client.println();
+
+  // stream do arquivo
+  const size_t BUFSZ = 512;
+  uint8_t buf[BUFSZ];
+  while (f.available()) {
+    int n = f.read(buf, BUFSZ);
+    if (n > 0) client.write(buf, n);
+  }
+  f.close();
+}
+
+
+void handleCsvClear(EthernetClient &client, const String &query){
+  if (!sdAvailable) { sendNotFound(client); return; }
+
+  String v_ym = getQueryParam(query, "yyyymm");
+  char fname[20];
+
+  if (v_ym.length() == 6) {
+    int yyyymm = v_ym.toInt();
+    buildMonthFilename(yyyymm, fname, sizeof(fname));
+  } else {
+    int yyyymm = currentYYYYMM(getEpochUTC());
+    if (yyyymm == 0) { sendNotFound(client); return; }
+    buildMonthFilename(yyyymm, fname, sizeof(fname));
+  }
+
+  bool ok = SD.exists(fname) ? SD.remove(fname) : true;
+
+  sendHtmlHeader(client);
+  client.println(F("<!doctype html><html><head><meta charset='utf-8'>"
+                   "<meta name='viewport' content='width=device-width, initial-scale=1'>"
+                   "<link href='https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css' rel='stylesheet'>"
+                   "<title>Limpar SD</title></head><body class='p-3'><div class='container'>"));
+  client.print(F("<h4>Limpar SD - "));
+  client.print(fname);
+  client.println(F("</h4>"));
+  if (ok) client.println(F("<div class='alert alert-success'>Arquivo removido (ou n&atilde;o existia).</div>"));
+  else    client.println(F("<div class='alert alert-danger'>Falha ao remover arquivo.</div>"));
+  client.println(F("<a class='btn btn-secondary' href='/export'>Voltar</a></div></body></html>"));
+}
+
+
+void handleJsonNow(EthernetClient &client){
   sendJsonHeader(client);
   if (isnan(lastTemp) || isnan(lastHum)) {
     client.println(F("{\"temperature\":null,\"humidity\":null,"
@@ -293,44 +880,61 @@ void handleJson(EthernetClient &client) {
   }
 }
 
-void handleHttp(EthernetClient &client) {
-  // espera request
-  unsigned long t0 = millis();
-  while (client.connected() && !client.available() && millis() - t0 < 1000) {}
-  if (!client.available()) return;
+void handleJsonLog(EthernetClient &client, const String &query){
+  if (!sdAvailable) { sendNotFound(client); return; }
+  sendJsonHeader(client);
 
-  // primeira linha: "GET /path?query HTTP/1.1"
-  String reqLine = client.readStringUntil('\r');
-  client.read(); // '\n'
+  String v_hours = getQueryParam(query, "hours");
+  String v_ym    = getQueryParam(query, "yyyymm");
 
-  // cabeçalhos (descarta)
-  while (client.connected()) {
-    String h = client.readStringUntil('\n');
-    if (h == "\r" || h.length() == 1) break;
+  if (v_hours.length()) {
+    unsigned long hrs = (unsigned long)v_hours.toInt();
+    if (hrs == 0) hrs = 24;
+    unsigned long nowEpoch = getEpochUTC();
+    unsigned long minEpoch = (nowEpoch>hrs*3600UL) ? nowEpoch - hrs*3600UL : 0;
+    streamCsvAsJson(client, minEpoch, 0, -1);
+    return;
   }
-
-  // extrai path e query
-  int sp1 = reqLine.indexOf(' ');
-  int sp2 = reqLine.indexOf(' ', sp1+1);
-  String url = reqLine.substring(sp1+1, sp2);  // /..., possivelmente com ?...
-  String path = url;
-  String query = "";
-  int q = url.indexOf('?');
-  if (q >= 0) {
-    path = url.substring(0, q);
-    query = url.substring(q+1);
+  if (v_ym.length() == 6) {
+    int yyyymm = v_ym.toInt(); // ex 202509
+    streamCsvAsJson(client, 0, 0, yyyymm);
+    return;
   }
-
-  if (path == "/" || path == "/index.html") {
-    handleRootPage(client, query);
-  } else if (path == "/ws/temperatura") {
-    handleJson(client);
-  } else {
-    sendNotFound(client);
-  }
+  // default: 24h
+  unsigned long nowEpoch = getEpochUTC();
+  unsigned long minEpoch = (nowEpoch>24UL*3600UL) ? nowEpoch - 24UL*3600UL : 0;
+  streamCsvAsJson(client, minEpoch, 0, -1);
 }
 
-void setup() {
+// ---------- HTTP routing ----------
+void handleHttp(EthernetClient &client){
+  unsigned long t0=millis();
+  while(client.connected() && !client.available() && millis()-t0<1000) {}
+  if(!client.available()) return;
+
+  String reqLine = client.readStringUntil('\r'); client.read(); // \n
+  while(client.connected()){
+    String h = client.readStringUntil('\n');
+    if(h=="\r" || h.length()==1) break;
+  }
+  int sp1=reqLine.indexOf(' '), sp2=reqLine.indexOf(' ',sp1+1);
+  String url=reqLine.substring(sp1+1,sp2);
+  String path=url, query=""; int q=url.indexOf('?');
+  if(q>=0){ path=url.substring(0,q); query=url.substring(q+1); }
+
+  if(path=="/" || path=="/index.html") handleRootPage(client, query);
+  else if(path=="/ws/temperatura")     handleJsonNow(client);
+  else if(path=="/ws/log")             handleJsonLog(client, query);
+  else if(path=="/historico")          handleHistoricoPage(client);
+  else if(path=="/export")             handleExportPage(client);           // <-- NOVO
+  else if(path=="/ws/csv")             handleCsvDownload(client, query);   // <-- NOVO
+  else if(path=="/ws/clear")           handleCsvClear(client, query);      // <-- NOVO
+  else sendNotFound(client);
+
+}
+
+// ======== Setup/Loop ========
+void setup(){
   Serial.begin(115200);
 
   // Buzzer/LED/DHT
@@ -338,96 +942,71 @@ void setup() {
   pinMode(PIN_BUZZER, OUTPUT); noTone(PIN_BUZZER);
   pinMode(PIN_LED, OUTPUT); digitalWrite(PIN_LED, LOW);
   pinMode(DHTPIN, INPUT_PULLUP);
-  dht.begin();
-  dhtWarmupUntil = millis() + 2000;
+  dht.begin(); dhtWarmupUntil = millis() + 2000;
 
   // LCD
   lcd.init(); lcd.backlight(); lcd.clear();
   lcd.setCursor(0,0); lcd.print(F("Inicializando..."));
 
-  // SPI / Ethernet (Mega + Shield)
-  pinMode(53, OUTPUT); digitalWrite(53, HIGH); // SS do Mega
-  pinMode(10, OUTPUT);                         // CS Ethernet
-  pinMode(4, OUTPUT);  digitalWrite(4, HIGH);  // desabilita SD do shield
+  // Config
+  if(!loadConfig(cfg)){ loadDefaults(cfg); saveConfig(cfg); }
 
-  // Carrega config
-  if (!loadConfig(cfg)) {
-    loadDefaults(cfg);
-    saveConfig(cfg);
-  }
-
-  // Aplica rede
+  // Rede
   applyNetworkFromConfig();
-  server.begin();
+  Serial.println(F("Servidor HTTP iniciado")); printIPToSerial();
 
-  Serial.println(F("Servidor HTTP iniciado"));
-  printIPToSerial();
+  // UDP/NTP inicial
+  ntpSyncNow();
 
-  // Splash: só IP por 10 s
-  lcd.clear();
-  printIPLine();
+  // SD
+  sdInit();
+
+  // Splash IP
+  lcd.clear(); printIPLine();
   lcd.setCursor(0,1); lcd.print("                ");
-  ipSplashStartMs = millis();
-  ipSplashDone = false;
+  ipSplashStartMs = millis(); ipSplashDone=false;
 
+  // Som inicial
   startupChime();
 }
 
-void sampleSensorIfNeeded() {
-  unsigned long now = millis();
-  if (now < dhtWarmupUntil) return;
-  if (now - lastSampleMs < sampleIntervalMs) return;
+void sampleSensorIfNeeded(){
+  unsigned long now=millis();
+  if(now<dhtWarmupUntil) return;
+  if(now - lastSampleMs < sampleIntervalMs) return;
   lastSampleMs = now;
 
   digitalWrite(PIN_LED, HIGH);
 
-  float t = dht.readTemperature();
-  float h = dht.readHumidity();
+  float t=dht.readTemperature(), h=dht.readHumidity();
+  if(!isnan(t) && !isnan(h)){
+    lastTemp=t; lastHum=h;
+    if(wasBelowThreshold && lastTemp>=THRESH_C){ beep(1800,180); wasBelowThreshold=false; }
+    else if(lastTemp<THRESH_C){ wasBelowThreshold=true; }
 
-  if (!isnan(t) && !isnan(h)) {
-    lastTemp = t; lastHum = h;
-
-    Serial.print(F("Temperatura: ")); Serial.println(lastTemp, 2);
-    Serial.print(F("Humidade: "));    Serial.println(lastHum, 2);
-
-    if (wasBelowThreshold && lastTemp >= THRESH_C) {
-      beep(1800, 180);
-      wasBelowThreshold = false;
-    } else if (lastTemp < THRESH_C) {
-      wasBelowThreshold = true;
+    if(sdAvailable){
+      sdAppendLog(lastTemp, lastHum);
     }
-
-    if (ipSplashDone) {
-      printIPLine();
-      printTHLine();
-    }
-  } else {
-    Serial.println(F("Falha leitura DHT22"));
+    if(ipSplashDone){ printIPLine(); printTHLine(); }
   }
-
   delay(60);
   digitalWrite(PIN_LED, LOW);
 }
 
-void loop() {
-  // controla splash IP
-  if (!ipSplashDone && (millis() - ipSplashStartMs >= IP_SPLASH_MS)) {
-    ipSplashDone = true;
-    printIPLine();
-    if (!isnan(lastTemp) && !isnan(lastHum)) {
-      printTHLine();
-    } else {
-      lcd.setCursor(0,1);
-      lcd.print("Aguardando DHT ");
-    }
+void loop(){
+  // splash
+  if(!ipSplashDone && (millis()-ipSplashStartMs>=IP_SPLASH_MS)){
+    ipSplashDone=true; printIPLine();
+    if(!isnan(lastTemp) && !isnan(lastHum)) printTHLine();
+    else { lcd.setCursor(0,1); lcd.print("Aguardando DHT "); }
   }
+
+  // NTP re-sync
+  if (millis() - lastNtpSyncMs > NTP_INTERVAL_MS) ntpSyncNow();
 
   sampleSensorIfNeeded();
 
+  // HTTP
   EthernetClient client = server.available();
-  if (client) {
-    handleHttp(client);
-    delay(1);
-    client.stop();
-  }
+  if(client){ handleHttp(client); delay(1); client.stop(); }
 }
