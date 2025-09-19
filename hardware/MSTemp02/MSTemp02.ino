@@ -74,7 +74,9 @@ NetConfig cfg;
 
 // ======== SD / Log ========
 bool sdAvailable = false;
-char currentMonthFile[20] = {0}; // e.g., "LOG_202509.csv"
+char currentMonthFile[20] = {0}; // e.g. "L202509.CSV"
+volatile bool sdBusy = false;    // <-- trava escrita durante export/export/clear
+
 
 
 bool resolveHostname(const char* host, IPAddress& outIP) {
@@ -144,6 +146,113 @@ void macToString(const uint8_t mac[6], char* buf, size_t sz){
   snprintf(buf, sz, "%02X:%02X:%02X:%02X:%02X:%02X",
     mac[0],mac[1],mac[2],mac[3],mac[4],mac[5]);
 }
+
+// --- Helpers: tamanho fixo em KB ---
+String humanKB(unsigned long long bytes) {
+  unsigned long kb = (unsigned long)((bytes + 1023ULL) / 1024ULL); // arredonda pra cima
+  char buf[32];
+  snprintf(buf, sizeof(buf), "%lu KB", kb);
+  return String(buf);
+}
+
+// --- Helpers de tamanho legível ---
+String humanSize(unsigned long long bytes) {
+  char buf[32];
+  if (bytes < 1024ULL) { snprintf(buf, sizeof(buf), "%llu B", bytes); return String(buf); }
+  double kb = bytes / 1024.0;
+  if (kb < 1024.0)     { snprintf(buf, sizeof(buf), "%.1f KB", kb); return String(buf); }
+  double mb = kb / 1024.0;
+  if (mb < 1024.0)     { snprintf(buf, sizeof(buf), "%.1f MB", mb); return String(buf); }
+  double gb = mb / 1024.0;
+  snprintf(buf, sizeof(buf), "%.2f GB", gb);
+  return String(buf);
+}
+
+void printSdStatusHtml(EthernetClient &client) {
+  client.println(F("<hr class='my-4'>"));
+  if (!sdAvailable) {
+    client.println(F(
+      "<div class='d-flex align-items-center mb-2'>"
+        "<h6 class='mb-0 me-2'>Armazenamento SD</h6>"
+        "<span class='badge bg-danger'>Indispon&iacute;vel</span>"
+      "</div>"
+      "<div class='alert alert-warning mb-0'>Cart&atilde;o SD n&atilde;o detectado.</div>"
+    ));
+    return;
+  }
+
+  // Cabeçalho com status "Disponível"
+  client.println(F(
+    "<div class='d-flex align-items-center mb-2'>"
+      "<h6 class='mb-0 me-2'>Armazenamento SD</h6>"
+      "<span class='badge bg-success'>Dispon&iacute;vel</span>"
+    "</div>"
+  ));
+
+  // Handoff SPI: garante SD ativo e Ethernet deselecionado
+  digitalWrite(PIN_CS_ETH, HIGH);
+
+  File root = SD.open("/");
+  if (!root) {
+    client.println(F("<div class='alert alert-danger mb-0'>Falha ao abrir a raiz do SD.</div>"));
+    digitalWrite(PIN_CS_SD, HIGH);
+    return;
+  }
+
+  unsigned long long totalBytes = 0;
+  const int MAX_ROWS = 50;
+  int shown = 0, totalFiles = 0;
+
+  client.println(F(
+    "<div class='table-responsive'>"
+      "<table class='table table-sm align-middle mb-2'>"
+        "<thead><tr><th>Arquivo</th><th style='width:160px' class='text-end'>Tamanho</th></tr></thead>"
+        "<tbody>"
+  ));
+
+  File entry = root.openNextFile();
+  while (entry) {
+    if (!entry.isDirectory()) {
+      unsigned long sz = entry.size();
+      totalBytes += (unsigned long long)sz;
+      totalFiles++;
+      if (shown < MAX_ROWS) {
+        client.print(F("<tr><td><code>"));
+        client.print(entry.name());
+        client.print(F("</code></td><td class='text-end'>"));
+        client.print(humanKB(sz));            // mostrar em KB
+        client.println(F("</td></tr>"));
+        shown++;
+      }
+    }
+    entry.close();
+    entry = root.openNextFile();
+  }
+  root.close();
+
+  if (totalFiles == 0) {
+    client.println(F("<tr><td colspan='2' class='text-muted'>Sem arquivos no SD.</td></tr>"));
+  }
+  if (totalFiles > shown) {
+    client.print(F("<tr><td colspan='2' class='text-muted'>(+"));
+    client.print(totalFiles - shown);
+    client.println(F(" restantes)</td></tr>"));
+  }
+
+  client.println(F("</tbody></table></div>"));
+
+  // Resumo exatamente no formato pedido
+  client.print(F("<div class='small text-muted'>Arquivos: "));
+  client.print(totalFiles);
+  client.print(F(" &middot; Ocupa&ccedil;&atilde;o total: "));
+  client.print(humanKB(totalBytes));          // total em KB
+  client.println(F("</div>"));
+
+  // Libera CS do SD
+  digitalWrite(PIN_CS_SD, HIGH);
+}
+
+
 
 
 // ---------- Rede ----------
@@ -226,10 +335,11 @@ void ntpSyncNow(){
   lastNtpSyncMs = millis();
 }
 
-// Constrói nome do arquivo a partir de YYYYMM numérico -> "LOG_YYYYMM.csv"
+// Constrói nome 8.3 a partir de YYYYMM -> "L202509.CSV"
 void buildMonthFilename(int yyyymm, char* out, size_t sz) {
-  snprintf(out, sz, "LOG_%06d.csv", yyyymm);
+  snprintf(out, sz, "L%06d.CSV", yyyymm);
 }
+
 
 // Pega YYYYMM (UTC) do epoch atual
 int currentYYYYMM(unsigned long epochUTC){
@@ -279,40 +389,23 @@ void printTHLine(){
 void beep(uint16_t f,uint16_t ms){ tone(PIN_BUZZER,f,ms); delay(ms+5); noTone(PIN_BUZZER); }
 void startupChime(){ beep(1200,120); beep(1600,120); beep(2000,160); }
 
-// ---------- SD ----------
+// Atualiza currentMonthFile a partir do epoch -> "LYYYYMM.CSV"
 void updateMonthFileName(unsigned long epochUTC){
-  // yyyy mm a partir de epoch UTC (aprox simples; a página formata datas localmente)
-  // Para nome do arquivo, basta mês/ano aproximados pelo JS? Vamos calcular rapidamente:
-  // Implementação mínima: assumindo ano >= 2000
-  // Usaremos uma função simples para converter epoch -> y,m (UTC)
-  // (para o nome do arquivo, tanto faz UTC vs local)
-  unsigned long t = epochUTC;
-  if (t == 0) { strcpy(currentMonthFile, "LOG_unknown.csv"); return; }
-  // converter epoch->data simples (Calendário gregoriano) — implemento via algoritmo civil_from_days
-  // Para simplificar e evitar overkill, vamos extrair YYYYMM com base em média (não perfeito para séculos),
-  // mas o suficiente aqui: usaremos uma biblioteca? Não. Faremos no JS para exibição.
-  // Aqui vamos construir "LOG_YYYYMM.csv" com cálculo aproximado a partir de dias.
-  unsigned long days = t / 86400UL;
-  // 1970-01-01 é dia 0
-  // converte para ano/mes aproximado:
-  // tabela de dias por ano bissexto complica; em vez disso, faremos rolling:
-  int y = 1970;
-  unsigned long d = days;
+  if (epochUTC == 0) { strcpy(currentMonthFile, "LOG_BOOT.CSV"); return; }
+  unsigned long days = epochUTC / 86400UL;
+  int y = 1970; unsigned long d = days;
   while (true) {
     bool leap = (y%4==0 && (y%100!=0 || y%400==0));
     unsigned long diy = leap ? 366 : 365;
     if (d >= diy) { d -= diy; y++; } else break;
   }
-  int monthDays[12] = {31,28,31,30,31,30,31,31,30,31,30,31};
+  int md[12] = {31,28,31,30,31,30,31,31,30,31,30,31};
   bool leap = (y%4==0 && (y%100!=0 || y%400==0));
-  if (leap) monthDays[1]=29;
-  int m=0;
-  while (m<12 && d >= (unsigned long)monthDays[m]) { d -= monthDays[m]; m++; }
-  // m: 0..11
-  char buf[20];
-  snprintf(buf, sizeof(buf), "LOG_%04d%02d.csv", y, m+1);
-  strcpy(currentMonthFile, buf);
+  if (leap) md[1]=29;
+  int m=0; while (m<12 && d >= (unsigned long)md[m]) { d -= md[m]; m++; }
+  snprintf(currentMonthFile, sizeof(currentMonthFile), "L%04d%02d.CSV", y, m+1);
 }
+
 
 void sdInit(){
   // desabilita Ethernet durante SD.begin para evitar conflito
@@ -325,24 +418,67 @@ void sdInit(){
   }
 }
 
-// Append linha ao log do mês corrente
 void sdAppendLog(float t, float h){
   if (!sdAvailable) return;
+  if (sdBusy) return;                 // <-- não grava durante export
+
+  // 1) Garante que o Ethernet NÃO está selecionado no SPI
+  digitalWrite(PIN_CS_ETH, HIGH);   // desabilita W5100/W5500
+  // (a lib SD controla PIN_CS_SD durante a operação)
+
+  // 2) Escolhe nome de arquivo: se ainda sem NTP, usa LOG_BOOT.csv
   unsigned long epoch = getEpochUTC();
-  updateMonthFileName(epoch);
-  File f = SD.open(currentMonthFile, FILE_WRITE);
-  if (!f) return;
-  // CSV: epoch,temp,hum\n
+  char fname[20];
+  if (epoch == 0) {
+    // ainda sem hora válida: grava provisoriamente aqui
+    strcpy(fname, "LOG_BOOT.csv");
+  } else {
+    updateMonthFileName(epoch);
+    strncpy(fname, currentMonthFile, sizeof(fname));
+    fname[sizeof(fname)-1] = '\0';
+  }
+
+  // 3) Abre para append
+  bool newFile = !SD.exists(fname);
+  File f = SD.open(fname, FILE_WRITE);
+  if (!f) {
+    // debug útil para ver no Serial
+    Serial.print(F("[SD] Falha ao abrir ")); Serial.println(fname);
+    digitalWrite(PIN_CS_SD, HIGH);   // garante SD solto
+    return;
+  }
+
+  // 4) (Opcional) escreve cabeçalho se arquivo novo
+  if (newFile) {
+    f.println(F("epoch,temperature,humidity"));
+  }
+
+  // 5) Escreve linha CSV
   f.print(epoch); f.print(',');
-  f.print(t,2);   f.print(',');
-  f.println(h,2);
+  f.print(t, 2);  f.print(',');
+  f.println(h, 2);
+  f.flush();
   f.close();
+
+  // 6) Libera SD (boa prática quando voltar a usar Ethernet)
+  digitalWrite(PIN_CS_SD, HIGH);
+
+  // 7) Debug
+  Serial.print(F("[SD] Append ")); Serial.print(fname);
+  Serial.print(F(" -> ")); Serial.print(t,2);
+  Serial.print(F("C, ")); Serial.print(h,2);
+  Serial.println(F("%"));
 }
+
 
 // Itera linhas do CSV e manda JSON filtrado
 void streamCsvAsJson(EthernetClient &client, unsigned long minEpoch, unsigned long maxEpoch,
                      int yearMonth /* yyyymm or -1 for current+prev hours */) {
   if (!sdAvailable) { client.println(F("[]")); return; }
+
+  // ---- SPI handoff: desabilita Ethernet p/ operar SD ----
+  digitalWrite(PIN_CS_ETH, HIGH);           // Ethernet inativo
+  // (SD.begin já configurou PIN_CS_SD; a lib SD controla o CS, mas garantimos no fim)
 
   bool first = true;
   client.print('[');
@@ -355,7 +491,6 @@ void streamCsvAsJson(EthernetClient &client, unsigned long minEpoch, unsigned lo
       char c = f.read();
       if (c=='\n' || c=='\r') {
         if (line.length()>0) {
-          // parse "epoch,temp,hum"
           int p1 = line.indexOf(',');
           int p2 = line.indexOf(',', p1+1);
           if (p1>0 && p2>p1) {
@@ -382,30 +517,32 @@ void streamCsvAsJson(EthernetClient &client, unsigned long minEpoch, unsigned lo
 
   if (yearMonth > 0) {
     char fname[20];
-    snprintf(fname, sizeof(fname), "LOG_%06d.csv", yearMonth); // e.g., 202509
+    // antes: "LOG_%06d.csv"
+    snprintf(fname, sizeof(fname), "L%06d.CSV", yearMonth);
+
     streamFile(fname);
   } else {
-    // hours window: pode cruzar mês, então abrimos o arquivo do mês atual e o anterior
     unsigned long nowEpoch = getEpochUTC();
     updateMonthFileName(nowEpoch);
     char cur[20]; strcpy(cur, currentMonthFile);
 
-    // arquivo do mês anterior
-    // cálculo simples: subtrai ~31 dias e gera nome
     unsigned long prevEpoch = nowEpoch - 31UL*86400UL;
     updateMonthFileName(prevEpoch);
     char prev[20]; strcpy(prev, currentMonthFile);
 
-    // restaura current name para não bagunçar var global
     updateMonthFileName(nowEpoch);
 
-    // processa anterior, depois atual (ordem crescente no JSON)
     streamFile(prev);
     streamFile(cur);
   }
 
   client.println(']');
+
+  // ---- SPI handoff: reabilita caminho do Ethernet ----
+  digitalWrite(PIN_CS_SD, HIGH);           // SD inativo
+  // (Ethernet lib vai baixar PIN_CS_ETH quando precisar)
 }
+
 
 // ---------- Páginas ----------
 void sendHtmlHeader(EthernetClient &c){
@@ -428,9 +565,11 @@ void sendNotFound(EthernetClient &c){
   c.println(); c.println(F("404"));
 }
 
+
 void handleRootPage(EthernetClient &client, const String &query){
   bool changed=false; NetConfig newCfg=cfg;
 
+  // ---- Parse de parâmetros (salva em EEPROM e reconfigura rede) ----
   if(query.length()>0){
     String v_mode  = getQueryParam(query,"mode"); // dhcp | static
     String v_stat  = getQueryParam(query,"use_static");
@@ -460,6 +599,7 @@ void handleRootPage(EthernetClient &client, const String &query){
     }
   }
 
+  // ---- HTML HEAD ----
   sendHtmlHeader(client);
   client.println(F(
     "<!doctype html><html lang='pt-br'><head><meta charset='utf-8'>"
@@ -467,27 +607,29 @@ void handleRootPage(EthernetClient &client, const String &query){
     "<title>Monitor de Temperatura</title>"
     "<link href='https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css' rel='stylesheet'>"
     "<style>"
-    "body{background:#f6f7fb}"
-    ".navbar{background:#0d6efd}.navbar-brand{color:#fff!important;font-weight:600}"
-    ".sidebar{min-height:100vh;background:#fff;border-right:1px solid #e5e7eb}"
-    ".sidebar .nav-link{color:#0d6efd;font-weight:500}"
-    ".sidebar .nav-link.active{background:#e7f1ff;border-radius:.5rem}"
-    ".card{border-radius:.75rem}"
-    "</style></head><body>"));
+      "body{background:#f6f7fb}"
+      ".navbar{background:#0d6efd}.navbar-brand{color:#fff!important;font-weight:600}"
+      ".sidebar{min-height:100vh;background:#fff;border-right:1px solid #e5e7eb}"
+      ".sidebar .nav-link{color:#0d6efd;font-weight:500}"
+      ".sidebar .nav-link.active{background:#e7f1ff;border-radius:.5rem}"
+      ".card{border-radius:.75rem}"
+    "</style></head><body>"
+  ));
 
+  // ---- NAVBAR ----
   client.println(F(
     "<nav class='navbar navbar-expand-lg'><div class='container-fluid'>"
-    "<a class='navbar-brand' href='#'>Equipamento de Monitoramento</a>"
-    "</div></nav>"));
+      "<a class='navbar-brand' href='#'>Equipamento de Monitoramento</a>"
+    "</div></nav>"
+    "<div class='container-fluid'><div class='row'>"
+  ));
 
-  client.println(F("<div class='container-fluid'><div class='row'>"));
-
-  // -------- Sidebar (UMA ÚNICA VEZ, sem duplicações) --------
+  // ---- SIDEBAR (uma única vez) ----
   client.println(F(
     "<aside class='col-12 col-md-3 col-lg-2 p-3 sidebar'>"
       "<ul class='nav nav-pills flex-column'>"
-        "<li class='nav-item'><a class='nav-link active' href='#status'>Status</a></li>"
-        "<li class='nav-item'><a class='nav-link' href='#rede'>Rede</a></li>"
+        "<li class='nav-item'><a class='nav-link active' href='/?#status'>Status</a></li>"
+        "<li class='nav-item'><a class='nav-link' href='/?#rede'>Rede</a></li>"
         "<li class='nav-item'><a class='nav-link' href='/historico'>Hist&oacute;rico</a></li>"
         "<li class='nav-item'><a class='nav-link' href='/export'>Exportar</a></li>"
         "<li class='nav-item'><a class='nav-link' href='/ws/temperatura' target='_blank'>JSON</a></li>"
@@ -495,46 +637,55 @@ void handleRootPage(EthernetClient &client, const String &query){
     "</aside>"
   ));
 
-  // -------- Conteúdo --------
+  // ---- MAIN ----
   client.println(F("<main class='col-12 col-md-9 col-lg-10 p-4'>"));
 
-  // Status
-  client.println(F("<section id='status' class='mb-4'>"
-    "<div class='card shadow-sm'><div class='card-body'>"
-    "<h5 class='card-title mb-3'>Status</h5>"
-    "<div class='row g-3'>"
-      "<div class='col-12 col-md-6'>"
-        "<div class='p-3 bg-light rounded'>"
-          "<div class='text-muted small'>Temperatura</div>"
-          "<div class='display-6' id='temp_val'>-- &deg;C</div>"
+  // ===== Status =====
+  client.println(F(
+    "<section id='status' class='mb-4'>"
+      "<div class='card shadow-sm'><div class='card-body'>"
+        "<h5 class='card-title mb-3'>Status</h5>"
+        "<div class='row g-3'>"
+          "<div class='col-12 col-md-6'>"
+            "<div class='p-3 bg-light rounded'>"
+              "<div class='text-muted small'>Temperatura</div>"
+              "<div class='display-6' id='temp_val'>-- &deg;C</div>"
+            "</div>"
+          "</div>"
+          "<div class='col-12 col-md-6'>"
+            "<div class='p-3 bg-light rounded'>"
+              "<div class='text-muted small'>Umidade</div>"
+              "<div class='display-6' id='hum_val'>-- %</div>"
+            "</div>"
+          "</div>"
         "</div>"
-      "</div>"
-      "<div class='col-12 col-md-6'>"
-        "<div class='p-3 bg-light rounded'>"
-          "<div class='text-muted small'>Umidade</div>"
-          "<div class='display-6' id='hum_val'>-- %</div>"
-        "</div>"
-      "</div>"
-    "</div>"
-    "<div class='mt-3 text-muted'>JSON em <code>/ws/temperatura</code>.</div>"
-    "</div></div></section>"));
+        "<div class='mt-3 text-muted'>JSON em <code>/ws/temperatura</code>.</div>"
+      "</div></div>"
+    "</section>"
+  ));
 
-  // Form de Rede
+  // ---- Bloco: Armazenamento SD (logo após Status) ----
+  printSdStatusHtml(client);
+
+  // ===== Rede =====
   char macStr[18]; macToString(cfg.mac, macStr, sizeof(macStr));
-  client.println(F("<section id='rede'><div class='card shadow-sm'><div class='card-body'>"
+  client.println(F("<section id='rede' class='mt-4'><div class='card shadow-sm'><div class='card-body'>"
     "<h5 class='card-title mb-3'>Configura&ccedil;&atilde;o de Rede</h5>"
     "<form method='GET' action='/'>"));
 
-  client.println(F("<div class='mb-3'>"
-    "<label class='form-label'>Modo de Endere&ccedil;amento</label>"
-    "<div class='form-check'>"
-      "<input class='form-check-input' type='radio' name='mode' id='mode_dhcp' value='dhcp'>"
-      "<label class='form-check-label' for='mode_dhcp'>DHCP (autom&aacute;tico)</label>"
+  client.println(F(
+    "<div class='mb-3'>"
+      "<label class='form-label'>Modo de Endere&ccedil;amento</label>"
+      "<div class='form-check'>"
+        "<input class='form-check-input' type='radio' name='mode' id='mode_dhcp' value='dhcp'>"
+        "<label class='form-check-label' for='mode_dhcp'>DHCP (autom&aacute;tico)</label>"
+      "</div>"
+      "<div class='form-check'>"
+        "<input class='form-check-input' type='radio' name='mode' id='mode_static' value='static'>"
+        "<label class='form-check-label' for='mode_static'>Est&aacute;tico (manual)</label>"
+      "</div>"
     "</div>"
-    "<div class='form-check'>"
-      "<input class='form-check-input' type='radio' name='mode' id='mode_static' value='static'>"
-      "<label class='form-check-label' for='mode_static'>Est&aacute;tico (manual)</label>"
-    "</div></div>"));
+  ));
 
   client.print(F("<div class='mb-3'><label class='form-label'>MAC (AA:BB:CC:DD:EE:FF)</label>"
                  "<input class='form-control' name='mac' value='"));
@@ -553,41 +704,48 @@ void handleRootPage(EthernetClient &client, const String &query){
     client.print(a[3]);
     client.println(F("'></div>"));
   };
-  ipField("IP",   "ip",   cfg.ip);
-  ipField("DNS",  "dns",  cfg.dns);
-  ipField("Gateway","gw", cfg.gw);
-  ipField("Mask", "mask", cfg.mask);
+  ipField("IP",     "ip",   cfg.ip);
+  ipField("DNS",    "dns",  cfg.dns);
+  ipField("Gateway","gw",   cfg.gw);
+  ipField("Mask",   "mask", cfg.mask);
 
-  client.println(F("<button class='btn btn-primary' type='submit'>Salvar & Aplicar</button>"
-                   "</form>"
-                   "<div class='mt-3 text-muted small'>Se DHCP estiver ativo e falhar, o equipamento usar&aacute; 172.17.240.253 automaticamente.</div>"
-                   "</div></div></section>"));
+  client.println(F(
+    "<button class='btn btn-primary' type='submit'>Salvar & Aplicar</button>"
+    "</form>"
+    "<div class='mt-3 text-muted small'>Se DHCP estiver ativo e falhar, o equipamento usar&aacute; 172.17.240.253 automaticamente.</div>"
+    "</div></div></section>"
+  ));
 
   // Rodapé
   client.print(F("<div class='text-muted mt-4'>Rodando em "));
   IPAddress ip = Ethernet.localIP(); client.print(ip);
   client.println(F(":8081</div>"));
 
+  // Fecha MAIN + LAYOUT e injeta scripts
   client.println(F(
     "</main></div></div>"
     "<script src='https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js'></script>"
     "<script>"
-    "const isDhcp = ")); client.print(cfg.use_static ? F("false") : F("true")); client.println(F(";"
-    "document.getElementById('mode_dhcp').checked = isDhcp;"
-    "document.getElementById('mode_static').checked = !isDhcp;"
-    "function toggleFields(){const dh=document.getElementById('mode_dhcp').checked;"
-      "document.querySelectorAll('.ipset input').forEach(el=>el.disabled=dh);}"
-    "document.getElementById('mode_dhcp').addEventListener('change',toggleFields);"
-    "document.getElementById('mode_static').addEventListener('change',toggleFields);"
-    "toggleFields();"
-    "async function refreshTH(){try{const r=await fetch('/ws/temperatura',{cache:'no-store'});"
-      "if(!r.ok)return;const j=await r.json();"
-      "document.getElementById('temp_val').innerHTML=(j.temperature==null?'--':j.temperature.toFixed(1))+' &deg;C';"
-      "document.getElementById('hum_val').innerHTML=(j.humidity==null?'--':j.humidity.toFixed(1))+' %';}catch(e){}}"
-    "refreshTH();setInterval(refreshTH,3000);"
+      "const isDhcp = "
+  ));
+  client.print(cfg.use_static ? F("false") : F("true"));
+  client.println(F(";"
+      "document.getElementById('mode_dhcp').checked = isDhcp;"
+      "document.getElementById('mode_static').checked = !isDhcp;"
+      "function toggleFields(){const dh=document.getElementById('mode_dhcp').checked;"
+        "document.querySelectorAll('.ipset input').forEach(el=>el.disabled=dh);}"
+      "document.getElementById('mode_dhcp').addEventListener('change',toggleFields);"
+      "document.getElementById('mode_static').addEventListener('change',toggleFields);"
+      "toggleFields();"
+      "async function refreshTH(){try{const r=await fetch('/ws/temperatura',{cache:'no-store'});"
+        "if(!r.ok)return;const j=await r.json();"
+        "document.getElementById('temp_val').innerHTML=(j.temperature==null?'--':j.temperature.toFixed(1))+' &deg;C';"
+        "document.getElementById('hum_val').innerHTML=(j.humidity==null?'--':j.humidity.toFixed(1))+' %';}catch(e){}}"
+      "refreshTH();setInterval(refreshTH,3000);"
     "</script></body></html>"
   ));
 }
+
 
 
 void handleHistoricoPage(EthernetClient &client){
@@ -728,7 +886,7 @@ void handleExportPage(EthernetClient &client){
     "</div></nav>"
     "<div class='container-fluid'><div class='row'>"));
 
-  // Sidebar (mesma do Status)
+  // Sidebar (igual ao Status)
   client.println(F(
     "<aside class='col-12 col-md-3 col-lg-2 p-3 sidebar'>"
       "<ul class='nav nav-pills flex-column'>"
@@ -749,13 +907,15 @@ void handleExportPage(EthernetClient &client){
                      "Exportar e Limpar n&atilde;o est&atilde;o dispon&iacute;veis.</div>"));
   }
 
+  client.println(F("<p class='text-muted'>Os arquivos seguem o padr&atilde;o <code>LYYYYMM.CSV</code> (por m&ecirc;s).</p>"));
+
   client.println(F(
     "<div class='card'><div class='card-body'>"
       "<div class='row g-3 align-items-end'>"
-        "<div class='col-12 col-md-3'>"
-          "<label class='form-label'>M&ecirc;s (YYYY-MM)</label>"
-          "<input id='yyyymm' class='form-control' placeholder='YYYY-MM'>"
-          "<div class='form-text'>Deixe vazio para usar o m&ecirc;s atual.</div>"
+        "<div class='col-12 col-md-4'>"
+          "<label class='form-label'>Ano e m&ecirc;s (YYYY-MM)</label>"
+          "<input id='ym' type='month' class='form-control'>"
+          "<div class='form-text'>O arquivo alvo ser&aacute; <code>LYYYYMM.CSV</code>.</div>"
         "</div>"
         "<div class='col-12 col-md-3'>"
           "<a id='btnDown' class='btn btn-success w-100'>Baixar CSV</a>"
@@ -763,60 +923,106 @@ void handleExportPage(EthernetClient &client){
         "<div class='col-12 col-md-3'>"
           "<a id='btnClr' class='btn btn-danger w-100'>Limpar SD (m&ecirc;s)</a>"
         "</div>"
-        "<div class='col-12 col-md-3'>"
-          "<a class='btn btn-secondary w-100' href='/historico'>Ir ao Hist&oacute;rico</a>"
+        "<div class='col-12 col-md-2'>"
+          "<a class='btn btn-secondary w-100' href='/historico'>Hist&oacute;rico</a>"
         "</div>"
       "</div>"
+      "<div class='mt-3 small text-muted'>Arquivo calculado: <code id='fnPreview'>—</code></div>"
     "</div></div>"));
 
   client.println(F(
-    "</main></div></div>" // fecha main/row/container
+    "</main></div></div>"
     "<script src='https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js'></script>"
     "<script>"
-    "function ymNow(){const d=new Date();const m=('0'+(d.getUTCMonth()+1)).slice(-2);return d.getUTCFullYear()+'-'+m;}"
-    "const sdOK = ")); client.print(sdAvailable ? F("true") : F("false")); client.println(F(";"
-    "const input=document.getElementById('yyyymm'); input.value = ymNow();"
-    "function yyyymmParam(){const v=input.value.trim(); if(!v) return '';"
-      "if(!/^\\d{4}-\\d{2}$/.test(v)){alert('Use YYYY-MM');return null;}"
-      "return v.replace('-','');}"
-    "document.getElementById('btnDown').addEventListener('click',()=>{"
-      "if(!sdOK){alert('SD indispon&iacute;vel');return;}"
-      "const ym=yyyymmParam(); if(ym===null) return;"
-      "const url = ym ? ('/ws/csv?yyyymm='+ym) : '/ws/csv';"
-      "window.location.href = url;"
-    "});"
-    "document.getElementById('btnClr').addEventListener('click',()=>{"
-      "if(!sdOK){alert('SD indispon&iacute;vel');return;}"
-      "if(!confirm('Apagar arquivo do m&ecirc;s selecionado?')) return;"
-      "const ym=yyyymmParam(); if(ym===null) return;"
-      "const url = ym ? ('/ws/clear?yyyymm='+ym) : '/ws/clear';"
-      "window.location.href = url;"
-    "});"
+      "const sdOK = ")); client.print(sdAvailable ? F("true") : F("false")); client.println(F(";"
+
+      // Preenche com o mês atual (YYYY-MM) no input type=month
+      "function ymNow(){const d=new Date();const m=('0'+(d.getMonth()+1)).slice(-2);return d.getFullYear()+'-'+m;}"
+      "const inp=document.getElementById('ym');"
+      "inp.value = ymNow();"
+
+      // Converte YYYY-MM -> yyyymm e mostra prévia LYYYYMM.CSV
+      "function yyyymm(){"
+        "const v=inp.value.trim(); if(!/^\\d{4}-\\d{2}$/.test(v)) return null;"
+        "return v.replace('-','');"
+      "}"
+      "function updatePreview(){"
+        "const ym=yyyymm();"
+        "document.getElementById('fnPreview').textContent = ym?('L'+ym+'.CSV'):'—';"
+      "}"
+      "updatePreview();"
+      "inp.addEventListener('change',updatePreview);"
+
+      // Botões
+      "document.getElementById('btnDown').addEventListener('click',()=>{"
+        "if(!sdOK){alert('SD indispon&iacute;vel');return;}"
+        "const ym=yyyymm(); if(!ym){alert('Informe YYYY-MM.');return;}"
+        "window.location.href = '/ws/csv?yyyymm='+ym;"
+      "});"
+      "document.getElementById('btnClr').addEventListener('click',()=>{"
+        "if(!sdOK){alert('SD indispon&iacute;vel');return;}"
+        "const ym=yyyymm(); if(!ym){alert('Informe YYYY-MM.');return;}"
+        "if(!confirm('Apagar o arquivo L'+ym+'.CSV?')) return;"
+        "window.location.href = '/ws/clear?yyyymm='+ym;"
+      "});"
     "</script></body></html>"
   ));
 }
 
 
-void handleCsvDownload(EthernetClient &client, const String &query){
-  if (!sdAvailable) { sendNotFound(client); return; }
+void handleCsvDownload(EthernetClient &client, const String &query) {
+  // 1) Verifica SD
+  if (!sdAvailable) {
+    sendHtmlHeader(client);
+    client.println(F("<!doctype html><html><head><meta charset='utf-8'><title>Exportar CSV</title></head><body>"));
+    client.println(F("<p style='padding:1rem'>SD n&atilde;o dispon&iacute;vel.</p></body></html>"));
+    return;
+  }
 
+  // 2) Resolve nome do arquivo (8.3): "LYYYYMM.CSV"
   String v_ym = getQueryParam(query, "yyyymm");
   char fname[20];
 
   if (v_ym.length() == 6) {
-    int yyyymm = v_ym.toInt();
-    buildMonthFilename(yyyymm, fname, sizeof(fname));
+    int yyyymm = v_ym.toInt();               // ex: 202509
+    buildMonthFilename(yyyymm, fname, sizeof(fname));  // -> "L202509.CSV"
   } else {
-    // mês atual
     int yyyymm = currentYYYYMM(getEpochUTC());
-    if (yyyymm == 0) { sendNotFound(client); return; }
+    if (yyyymm == 0) {
+      // Sem epoch válido ainda (NTP não sincronizado)
+      sendHtmlHeader(client);
+      client.println(F("<!doctype html><html><head><meta charset='utf-8'><title>Exportar CSV</title></head><body>"));
+      client.println(F("<p style='padding:1rem'>Sem data/hora v&aacute;lida (NTP). N&atilde;o h&aacute; m&ecirc;s atual para exportar.</p></body></html>"));
+      return;
+    }
     buildMonthFilename(yyyymm, fname, sizeof(fname));
   }
 
-  File f = SD.open(fname, FILE_READ);
-  if (!f) { sendNotFound(client); return; }
+  // 3) Se não existir, informa de forma amigável (não 404)
+  if (!SD.exists(fname)) {
+    sendHtmlHeader(client);
+    client.print(F("<!doctype html><html><head><meta charset='utf-8'><title>Exportar CSV</title></head><body>"));
+    client.print(F("<p style='padding:1rem'>Arquivo inexistente para o per&iacute;odo solicitado: <code>"));
+    client.print(fname);
+    client.println(F("</code></p></body></html>"));
+    return;
+  }
 
-  // Cabeçalhos de download
+  // 4) Bloqueia escrita no log durante export e faz handoff do SPI
+  sdBusy = true;                  // impede sdAppendLog
+  digitalWrite(PIN_CS_ETH, HIGH); // garante W5100/W5500 dessel.
+
+  File f = SD.open(fname, FILE_READ);
+  if (!f) {
+    sdBusy = false;
+    digitalWrite(PIN_CS_SD, HIGH);
+    sendHtmlHeader(client);
+    client.println(F("<!doctype html><html><head><meta charset='utf-8'><title>Exportar CSV</title></head><body>"));
+    client.println(F("<p style='padding:1rem'>Falha ao abrir o arquivo no SD.</p></body></html>"));
+    return;
+  }
+
+  // 5) Cabeçalhos de download
   client.println(F("HTTP/1.1 200 OK"));
   client.println(F("Content-Type: text/csv; charset=utf-8"));
   client.print (F("Content-Disposition: attachment; filename=\""));
@@ -825,7 +1031,7 @@ void handleCsvDownload(EthernetClient &client, const String &query){
   client.println(F("Connection: close"));
   client.println();
 
-  // stream do arquivo
+  // 6) Stream do arquivo
   const size_t BUFSZ = 512;
   uint8_t buf[BUFSZ];
   while (f.available()) {
@@ -833,15 +1039,19 @@ void handleCsvDownload(EthernetClient &client, const String &query){
     if (n > 0) client.write(buf, n);
   }
   f.close();
+
+  // 7) Libera SPI e destrava SD
+  digitalWrite(PIN_CS_SD, HIGH);
+  sdBusy = false;
 }
 
 
+
 void handleCsvClear(EthernetClient &client, const String &query){
-  if (!sdAvailable) { sendNotFound(client); return; }
+  if (!sdAvailable) { sendHtmlHeader(client); client.println(F("<p style='padding:1rem'>SD nao disponivel.</p>")); return; }
 
   String v_ym = getQueryParam(query, "yyyymm");
   char fname[20];
-
   if (v_ym.length() == 6) {
     int yyyymm = v_ym.toInt();
     buildMonthFilename(yyyymm, fname, sizeof(fname));
@@ -851,20 +1061,23 @@ void handleCsvClear(EthernetClient &client, const String &query){
     buildMonthFilename(yyyymm, fname, sizeof(fname));
   }
 
-  bool ok = SD.exists(fname) ? SD.remove(fname) : true;
+  sdBusy = true;
+  digitalWrite(PIN_CS_ETH, HIGH);
+
+  bool ok = SD.exists(fname) ? SD.remove(fname) : false;
+
+  digitalWrite(PIN_CS_SD, HIGH);
+  sdBusy = false;
 
   sendHtmlHeader(client);
-  client.println(F("<!doctype html><html><head><meta charset='utf-8'>"
-                   "<meta name='viewport' content='width=device-width, initial-scale=1'>"
-                   "<link href='https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css' rel='stylesheet'>"
-                   "<title>Limpar SD</title></head><body class='p-3'><div class='container'>"));
-  client.print(F("<h4>Limpar SD - "));
-  client.print(fname);
-  client.println(F("</h4>"));
-  if (ok) client.println(F("<div class='alert alert-success'>Arquivo removido (ou n&atilde;o existia).</div>"));
-  else    client.println(F("<div class='alert alert-danger'>Falha ao remover arquivo.</div>"));
+  client.println(F("<!doctype html><html><head><meta charset='utf-8'><title>Limpar SD</title>"
+                   "<link href='https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css' rel='stylesheet'></head><body class='p-3'><div class='container'>"));
+  client.print(F("<h4>Limpar SD - <code>")); client.print(fname); client.println(F("</code></h4>"));
+  if (ok) client.println(F("<div class='alert alert-success'>Arquivo removido.</div>"));
+  else    client.println(F("<div class='alert alert-warning'>Arquivo n&atilde;o existia.</div>"));
   client.println(F("<a class='btn btn-secondary' href='/export'>Voltar</a></div></body></html>"));
 }
+
 
 
 void handleJsonNow(EthernetClient &client){
@@ -883,6 +1096,11 @@ void handleJsonNow(EthernetClient &client){
 void handleJsonLog(EthernetClient &client, const String &query){
   if (!sdAvailable) { sendNotFound(client); return; }
   sendJsonHeader(client);
+
+  if (!sdAvailable) {                     // <-- sem SD, devolve array vazio
+    client.println(F("[]"));
+    return;
+  }
 
   String v_hours = getQueryParam(query, "hours");
   String v_ym    = getQueryParam(query, "yyyymm");
