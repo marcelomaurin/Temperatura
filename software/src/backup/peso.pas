@@ -13,11 +13,13 @@ type
 
   TfrmPeso = class(TForm)
     Label2: TLabel;
-    lbPeso: TLEDNumber;
+    Label3: TLabel;
+    lbTemperatura: TLEDNumber;
+    lbHumidade: TLEDNumber;
   private
 
   public
-    procedure Peso(info: string);
+    procedure Temperatura(info: string);
 
   end;
 
@@ -30,9 +32,9 @@ implementation
 
 { TfrmPeso }
 
-procedure TfrmPeso.Peso(info: string);
+procedure TfrmPeso.Temperatura(info: string);
 begin
-  lbPeso.Caption:= info;
+  lbTemperatura.Caption:= info;
   Application.ProcessMessages;
 end;
 

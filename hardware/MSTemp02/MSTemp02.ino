@@ -41,6 +41,10 @@ LiquidCrystal_I2C lcd(0x27, 16, 2);
 EthernetServer server(8081);
 EthernetUDP Udp;
 
+
+
+
+
 // ======== NTP ========
 const char* NTP_SERVER = "a.st1.ntp.br"; // NTP Brasil
 const unsigned int NTP_LOCAL_PORT = 8888;
@@ -68,19 +72,36 @@ const unsigned long IP_SPLASH_MS = 10000;
 
 // ======== Config persistente (EEPROM) ========
 struct NetConfig {
-  uint8_t magic;       // 0x42
-  uint8_t use_static;  // 0/1
-  uint8_t ip[4];
-  uint8_t dns[4];
-  uint8_t gw[4];
-  uint8_t mask[4];
-  uint8_t mac[6];
-  uint8_t checksum;    // soma simples (exceto checksum)
+  uint8_t  magic;       // 0x42
+  uint8_t  use_static;  // 0/1
+  uint8_t  ip[4];
+  uint8_t  dns[4];
+  uint8_t  gw[4];
+  uint8_t  mask[4];
+  uint8_t  mac[6];
+
+  // ===== Calibração =====
+  // y_cal = k * y_raw + a
+  float    kTemp;   // ganho temperatura
+  float    aTemp;   // offset temperatura
+  float    kHum;    // ganho umidade
+  float    aHum;    // offset umidade
+
+  uint8_t  checksum;    // soma simples (exceto checksum)
 };
+
 const uint8_t CFG_MAGIC = 0x42;
 const int EEPROM_ADDR = 0;
 
+
 NetConfig cfg;
+
+
+// ======== Calibração: aplica (k,a) ========
+// Retorna y_cal = k*y + a. Se y for NaN, mantém NaN.
+static inline float applyCalTemp(float raw){ return isnan(raw) ? raw : (cfg.kTemp*raw + cfg.aTemp); }
+static inline float applyCalHum (float raw){ return isnan(raw) ? raw : (cfg.kHum *raw + cfg.aHum ); }
+
 
 // ======== SD / Log ========
 bool sdAvailable = false;
@@ -155,10 +176,12 @@ bool resolveHostname(const char* host, IPAddress& outIP) {
 // ---------- Utils: EEPROM ----------
 uint8_t calcChecksum(const NetConfig &c){
   const uint8_t *p = (const uint8_t*)&c;
+  // Soma todos os bytes EXCETO o último (checksum)
   uint16_t s=0;
   for(size_t i=0;i<sizeof(NetConfig)-1;i++) s+=p[i];
   return (uint8_t)(s & 0xFF);
 }
+
 void loadDefaults(NetConfig &c){
   c.magic = CFG_MAGIC;
   c.use_static = DEFAULT_USE_STATIC_IP ? 1 : 0;
@@ -167,14 +190,28 @@ void loadDefaults(NetConfig &c){
     c.gw[i]=DEFAULT_GW[i]; c.mask[i]=DEFAULT_MASK[i];
   }
   for(int i=0;i<6;i++) c.mac[i]=DEFAULT_MAC[i];
+
+  // Calibração default (identidade)
+  c.kTemp = 1.0f;  c.aTemp = 0.0f;
+  c.kHum  = 1.0f;  c.aHum  = 0.0f;
+
   c.checksum = calcChecksum(c);
 }
+
+
 bool loadConfig(NetConfig &c){
   EEPROM.get(EEPROM_ADDR, c);
   if(c.magic!=CFG_MAGIC) return false;
   if(c.checksum!=calcChecksum(c)) return false;
+  // Sanidade mínima: evitar NaN/inf
+  if (!isfinite(c.kTemp)) c.kTemp=1.0f;
+  if (!isfinite(c.aTemp)) c.aTemp=0.0f;
+  if (!isfinite(c.kHum )) c.kHum =1.0f;
+  if (!isfinite(c.aHum )) c.aHum =0.0f;
   return true;
 }
+
+
 void saveConfig(const NetConfig &c){ EEPROM.put(EEPROM_ADDR, c); }
 
 // ---------- Utils: IP/MAC ----------
@@ -788,10 +825,12 @@ void handleRootPage(EthernetClient &client, const String &query){
         "<li class='nav-item'><a class='nav-link' href='/?#rede'>Rede</a></li>"
         "<li class='nav-item'><a class='nav-link' href='/historico'>Hist&oacute;rico</a></li>"
         "<li class='nav-item'><a class='nav-link' href='/export'>Exportar</a></li>"
+        "<li class='nav-item'><a class='nav-link' href='/calibracao'>Calibra&ccedil;&atilde;o</a></li>"  // <-- NOVO
         "<li class='nav-item'><a class='nav-link' href='/ws/temperatura' target='_blank'>JSON</a></li>"
       "</ul>"
     "</aside>"
   ));
+
 
   // ---- MAIN ----
   client.println(F("<main class='col-12 col-md-9 col-lg-10 p-4'>"));
@@ -902,6 +941,73 @@ void handleRootPage(EthernetClient &client, const String &query){
   ));
 }
 
+// /ws/calib?kt=1.000&at=0.000&kh=1.000&ah=0.000
+// Também aceita wizard 2-pontos:
+// /ws/calib?mode=two&raw1t=...&ref1t=...&raw2t=...&ref2t=...&raw1h=...&ref1h=...&raw2h=...&ref2h=...
+void handleSetCalibracao(EthernetClient &client, const String &query){
+  bool changed=false;
+  String mode = getQueryParam(query,"mode"); // "" | "two"
+
+  NetConfig nc = cfg;
+
+  if (mode == "two"){
+    // ===== Wizard 2 pontos: T =====
+    auto g = [&](const char* k)->float{
+      String s = getQueryParam(query, k);
+      s.replace(',', '.');
+      return s.length()? s.toFloat() : NAN;
+    };
+    float raw1t=g("raw1t"), ref1t=g("ref1t"), raw2t=g("raw2t"), ref2t=g("ref2t");
+    float raw1h=g("raw1h"), ref1h=g("ref1h"), raw2h=g("raw2h"), ref2h=g("ref2h");
+
+    auto solve2p = [](float r1,float R1,float r2,float R2, float &K,float &A)->bool{
+      if (!isfinite(r1)||!isfinite(R1)||!isfinite(r2)||!isfinite(R2)) return false;
+      float dr = (r2 - r1);
+      if (fabsf(dr) < 1e-6f) return false;
+      K = (R2 - R1) / dr;
+      A = R1 - K * r1;
+      return isfinite(K) && isfinite(A);
+    };
+
+    float k,a;
+    if (solve2p(raw1t,ref1t,raw2t,ref2t,k,a)){ nc.kTemp=k; nc.aTemp=a; changed=true; }
+    if (solve2p(raw1h,ref1h,raw2h,ref2h,k,a)){ nc.kHum =k; nc.aHum =a; changed=true; }
+  } else {
+    // ===== Set direto: ganhos/offsets =====
+    auto parse = [&](const char* key, float &dst)->bool{
+      String s=getQueryParam(query,key); if(!s.length()) return false;
+      s.replace(',', '.'); dst = s.toFloat(); return true;
+    };
+    changed |= parse("kt", nc.kTemp);
+    changed |= parse("at", nc.aTemp);
+    changed |= parse("kh", nc.kHum);
+    changed |= parse("ah", nc.aHum);
+  }
+
+  // Reset (identidade)
+  String reset = getQueryParam(query,"reset");
+  if (reset=="1"){
+    nc.kTemp=1.0f; nc.aTemp=0.0f;
+    nc.kHum =1.0f; nc.aHum =0.0f;
+    changed = true;
+  }
+
+  sendJsonHeader(client);
+  if (changed){
+    nc.magic = CFG_MAGIC;
+    nc.checksum = calcChecksum(nc);
+    cfg = nc;
+    saveConfig(cfg);
+    client.print(F("{\"ok\":true,"));
+  } else {
+    client.print(F("{\"ok\":false,"));
+  }
+  client.print(F("\"kTemp\":")); client.print(cfg.kTemp,6);
+  client.print(F(",\"aTemp\":")); client.print(cfg.aTemp,6);
+  client.print(F(",\"kHum\":"));  client.print(cfg.kHum,6);
+  client.print(F(",\"aHum\":"));  client.print(cfg.aHum,6);
+  client.println(F("}"));
+}
 
 
 void handleHistoricoPage(EthernetClient &client){
@@ -1589,6 +1695,130 @@ void streamMonthCsvAsJson(EthernetClient &client, uint32_t yyyymm) {
 }
 
 
+void handleCalibracaoPage(EthernetClient &client, const String &query){
+  // Permite também salvar via GET simples (kt/at/kh/ah/reset) para facilitar testes
+  if (query.length()){
+    // Encaminha para o endpoint JSON e imediatamente volta para a página
+    // (UX simples: salva e recarrega)
+    handleSetCalibracao(client, query);
+    return;
+  }
+
+  sendHtmlHeader(client);
+  client.println(F(
+    "<!doctype html><html lang='pt-br'><head><meta charset='utf-8'>"
+    "<meta name='viewport' content='width=device-width, initial-scale=1'>"
+    "<title>Calibra&ccedil;&atilde;o</title>"
+    "<link href='https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css' rel='stylesheet'>"
+    "<style>"
+      "body{background:#f6f7fb}"
+      ".navbar{background:#0d6efd}.navbar-brand{color:#fff!important;font-weight:600}"
+      ".sidebar{min-height:100vh;background:#fff;border-right:1px solid #e5e7eb}"
+      ".sidebar .nav-link{color:#0d6efd;font-weight:500}"
+      ".sidebar .nav-link.active{background:#e7f1ff;border-radius:.5rem}"
+      ".card{border-radius:.75rem}"
+      ".grid2{display:grid;grid-template-columns:1fr 1fr;gap:1rem}"
+      "@media(max-width:768px){.grid2{grid-template-columns:1fr}}"
+    "</style></head><body>"
+    "<nav class='navbar navbar-expand-lg'><div class='container-fluid'>"
+      "<a class='navbar-brand' href='#'>Equipamento de Monitoramento</a>"
+    "</div></nav>"
+    "<div class='container-fluid'><div class='row'>"
+    "<aside class='col-12 col-md-3 col-lg-2 p-3 sidebar'>"
+      "<ul class='nav nav-pills flex-column'>"
+        "<li class='nav-item'><a class='nav-link' href='/?#status'>Status</a></li>"
+        "<li class='nav-item'><a class='nav-link' href='/?#rede'>Rede</a></li>"
+        "<li class='nav-item'><a class='nav-link' href='/historico'>Hist&oacute;rico</a></li>"
+        "<li class='nav-item'><a class='nav-link' href='/export'>Exportar</a></li>"
+        "<li class='nav-item'><a class='nav-link active' href='/calibracao'>Calibra&ccedil;&atilde;o</a></li>"
+        "<li class='nav-item'><a class='nav-link' href='/ws/temperatura' target='_blank'>JSON</a></li>"
+      "</ul>"
+    "</aside>"
+    "<main class='col-12 col-md-9 col-lg-10 p-4'>"
+      "<h3 class='mb-3'>Calibra&ccedil;&atilde;o</h3>"
+
+      "<div class='card mb-3'><div class='card-body'>"
+        "<h5 class='mb-3'>Ganho e Offset (aplica&ccedil;&atilde;o direta)</h5>"
+        "<form class='row g-3' method='GET' action='/ws/calib'>"
+          "<div class='col-6 col-lg-3'><label class='form-label'>kTemp</label>"
+            "<input name='kt' class='form-control' value='"
+  ));
+  client.print(cfg.kTemp, 6);
+  client.println(F("'></div>"));
+
+  client.print(F("<div class='col-6 col-lg-3'><label class='form-label'>aTemp</label>"
+                 "<input name='at' class='form-control' value='"));
+  client.print(cfg.aTemp, 6);
+  client.println(F("'></div>"));
+
+  client.print(F("<div class='col-6 col-lg-3'><label class='form-label'>kHum</label>"
+                 "<input name='kh' class='form-control' value='"));
+  client.print(cfg.kHum, 6);
+  client.println(F("'></div>"));
+
+  client.print(F("<div class='col-6 col-lg-3'><label class='form-label'>aHum</label>"
+                 "<input name='ah' class='form-control' value='"));
+  client.print(cfg.aHum, 6);
+  client.println(F("'></div>"));
+
+  client.println(F(
+          "<div class='col-12 d-flex gap-2'>"
+            "<button class='btn btn-primary'>Salvar</button>"
+            "<a class='btn btn-outline-secondary' href='/calibracao'>Recarregar</a>"
+            "<a class='btn btn-outline-danger' href='/ws/calib?reset=1'>Zerar (identidade)</a>"
+          "</div>"
+        "</form>"
+      "</div></div>"
+
+      "<div class='card mb-3'><div class='card-body'>"
+        "<h5 class='mb-3'>Assistente de 2 Pontos</h5>"
+        "<p class='text-muted'>Informe duas medi&ccedil;&otilde;es: "
+        "<code>raw</code> (o que o sensor mostrou) e <code>ref</code> (valor de refer&ecirc;ncia).</p>"
+        "<form class='grid2' method='GET' action='/ws/calib'>"
+          "<input type='hidden' name='mode' value='two'>"
+          "<div>"
+            "<h6>Temperatura</h6>"
+            "<div class='row g-2'>"
+              "<div class='col-6'><label class='form-label'>raw1 (°C)</label><input name='raw1t' class='form-control' placeholder='ex.: 24.7'></div>"
+              "<div class='col-6'><label class='form-label'>ref1 (°C)</label><input name='ref1t' class='form-control' placeholder='ex.: 25.0'></div>"
+              "<div class='col-6'><label class='form-label'>raw2 (°C)</label><input name='raw2t' class='form-control' placeholder='ex.: 34.8'></div>"
+              "<div class='col-6'><label class='form-label'>ref2 (°C)</label><input name='ref2t' class='form-control' placeholder='ex.: 35.0'></div>"
+            "</div>"
+          "</div>"
+          "<div>"
+            "<h6>Umidade</h6>"
+            "<div class='row g-2'>"
+              "<div class='col-6'><label class='form-label'>raw1 (%RH)</label><input name='raw1h' class='form-control' placeholder='ex.: 74.2'></div>"
+              "<div class='col-6'><label class='form-label'>ref1 (%RH)</label><input name='ref1h' class='form-control' placeholder='ex.: 75.3'></div>"
+              "<div class='col-6'><label class='form-label'>raw2 (%RH)</label><input name='raw2h' class='form-control' placeholder='ex.: 32.5'></div>"
+              "<div class='col-6'><label class='form-label'>ref2 (%RH)</label><input name='ref2h' class='form-control' placeholder='ex.: 33.0'></div>"
+            "</div>"
+          "</div>"
+          "<div class='col-12 mt-3 d-flex gap-2'>"
+            "<button class='btn btn-primary'>Calcular e Salvar</button>"
+            "<a class='btn btn-outline-danger' href='/ws/calib?reset=1'>Zerar (identidade)</a>"
+          "</div>"
+        "</form>"
+      "</div></div>"
+
+      "<div class='card'><div class='card-body'>"
+        "<h5 class='mb-2'>Dicas pr&aacute;ticas</h5>"
+        "<ul class='mb-0'>"
+          "<li>Evite correntes de ar e aguarde estabiliza&ccedil;&atilde;o (2&ndash;5 min) antes de registrar cada ponto.</li>"
+          "<li>Para umidade, use solu&ccedil;&otilde;es salinas saturadas para pontos de refer&ecirc;ncia (~75% &agrave; 25&nbsp;&deg;C com NaCl; ~33% com MgCl<sub>2</sub>) em recipiente fechado.</li>"
+          "<li>Para temperatura, use pontos em torno da faixa de uso (ex.: ambiente e pr&oacute;ximo ao topo esperado).</li>"
+        "</ul>"
+        "<div class='text-muted small mt-2'>M&eacute;todo de dois pontos (ganho/offset) para DHT22 em clima tropical descrito em literatura t&eacute;cnica. "
+        "Considere repetir a calibra&ccedil;&atilde;o periodicamente.</div>"
+      "</div></div>"
+
+    "</main></div></div>"
+    "<script src='https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js'></script>"
+    "</body></html>"
+  ));
+}
+
+
 void handleJsonLog(EthernetClient &client, const String &query){
   unsigned long t0 = millis();
   Serial.println(F("\n[WS/LOG] ====== handleJsonLog begin ======"));
@@ -1729,10 +1959,12 @@ void handleHttp(EthernetClient &client){
   else if(path=="/ws/temperatura")     handleJsonNow(client);
   else if(path=="/ws/log")             handleJsonLog(client, query);
   else if(path=="/historico")          handleHistoricoPage(client);
-  else if(path=="/export")             handleExportPage(client);           // <-- NOVO
-  else if(path=="/ws/csv")             handleCsvDownload(client, query);   // <-- NOVO
-  else if(path=="/ws/clear")           handleCsvClear(client, query);      // <-- NOVO
+  else if(path=="/export")             handleExportPage(client);
+  else if(path=="/calibracao")         handleCalibracaoPage(client, query);   // <-- NOVO
+  else if(path=="/ws/calib")           handleSetCalibracao(client, query);    // <-- NOVO
+  else if(path=="/ws/clear")           handleCsvClear(client, query);
   else sendNotFound(client);
+
 
 }
 
@@ -1783,7 +2015,9 @@ void sampleSensorIfNeeded(){
 
   float t=dht.readTemperature(), h=dht.readHumidity();
   if(!isnan(t) && !isnan(h)){
-    lastTemp=t; lastHum=h;
+    // Aplica calibração antes de publicar/logar
+    lastTemp = applyCalTemp(t);
+    lastHum  = applyCalHum(h);
 
     if(wasBelowThreshold && lastTemp>=THRESH_C){ beep(1800,180); wasBelowThreshold=false; }
     else if(lastTemp<THRESH_C){ wasBelowThreshold=true; }

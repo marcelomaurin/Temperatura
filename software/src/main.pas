@@ -161,37 +161,130 @@ end;
 
 procedure Tfrmmain.LazSerial1RxData(Sender: TObject);
 var
-  info : string;
-  pos1 , pos2: integer;
-  parte : string;
-begin
+  info, line, leftPart, rightPart: string;
+  p, pC, pPct: Integer;
+  tempStr, humStr: string;
+  tempVal, humVal: Double;
+  fs: TFormatSettings;
 
-  if( LazSerial1.DataAvailable) then
+  function PopLineFromBuffer(var S: string): string;
+  var
+    i: Integer;
+  begin
+    // Procura primeiro CR ou LF
+    i := Pos(#13, S);
+    if i = 0 then i := Pos(#10, S);
+    if i = 0 then
+      Exit(''); // ainda não há linha completa
+
+    Result := Copy(S, 1, i - 1);
+    // Remove CR/LF (cobre \r, \n, \r\n)
+    Delete(S, 1, i);
+    while (Length(S) > 0) and ((S[1] = #10) or (S[1] = #13)) do
+      Delete(S, 1, 1);
+  end;
+
+  function TrimPrefixArrow(const S: string): string;
+  var
+    T: string;
+  begin
+    T := TrimLeft(S);
+    if (LeftStr(T, 2) = '->') then
+      Result := TrimLeft(Copy(T, 3, MaxInt))
+    else
+      Result := T;
+  end;
+
+  function NormalizeNumber(const S: string): string;
+  var
+    T: string;
+  begin
+    T := Trim(S);
+    // Remove espaços
+    T := StringReplace(T, ' ', '', [rfReplaceAll]);
+    // Troca vírgula decimal por ponto (para BR)
+    // (Não mexe na vírgula separadora porque já separamos antes)
+    T := StringReplace(T, ',', '.', [rfReplaceAll]);
+    Result := T;
+  end;
+
+begin
+  // Configura ponto como separador decimal para TryStrToFloat
+  fs := DefaultFormatSettings;
+  fs.DecimalSeparator := '.';
+
+  // 1) Ler e acumular no buffer
+  if LazSerial1.DataAvailable then
   begin
     info := LazSerial1.ReadData();
+    if info <> '' then
+      Lbuffer := Lbuffer + info;
   end;
-  pos2 := pos(#13,info);
-  if (pos2=-1)  then
-  begin
-     Lbuffer:=Lbuffer + info;
-  end
-  else
-  begin
-     Lbuffer:=Lbuffer + info;
 
-     pos1:= pos('Temperatura:',Lbuffer);
-     //pos2 := Length(Lbuffer);
-     if (pos1<>0)  then
-     begin
-       parte:= copy(LBuffer,pos1+12,length(LBuffer));
-       pos2:= pos(#13,parte);
-       parte := copy(parte,0,pos2-1);
-       frmpeso.Temperatura(parte);
-       Application.ProcessMessages;
-       LBuffer := '';
-     end;
+  // 2) Processar todas as linhas completas que já estiverem no buffer
+  while True do
+  begin
+    line := PopLineFromBuffer(Lbuffer);
+    if line = '' then
+      Break; // sem linha completa, aguarda próxima chegada
+
+    line := Trim(line);
+    if line = '' then
+      Continue;
+
+    // 3) Remove o prefixo "->" se houver
+    line := TrimPrefixArrow(line);
+    // Agora esperamos algo como: "28.00C, 53.00%" (ou "28,00C, 53,00%")
+
+    // 4) Separa em duas partes pelo primeiro separador de vírgula
+    p := Pos(',', line);
+    if p > 0 then
+    begin
+      leftPart  := Trim(Copy(line, 1, p - 1));       // "28.00C"
+      rightPart := Trim(Copy(line, p + 1, MaxInt));  // "53.00%"
+
+      // 4.1) Extrai temperatura: até o 'C'
+      pC := Pos('C', leftPart);
+      if pC > 1 then
+        tempStr := Trim(Copy(leftPart, 1, pC - 1))
+      else
+        tempStr := Trim(leftPart); // fallback se vier sem 'C'
+
+      // 4.2) Extrai umidade: até o '%'
+      pPct := Pos('%', rightPart);
+      if pPct > 1 then
+        humStr := Trim(Copy(rightPart, 1, pPct - 1))
+      else
+        humStr := Trim(rightPart); // fallback se vier sem '%'
+
+      // 5) Normaliza números (vírgula -> ponto, remove espaços)
+      tempStr := NormalizeNumber(tempStr);
+      humStr  := NormalizeNumber(humStr);
+
+      // 6) Converte e usa (se falhar conversão, ainda assim envia string limpa)
+      if not TryStrToFloat(tempStr, tempVal, fs) then
+        tempVal := 0;
+      if not TryStrToFloat(humStr, humVal, fs) then
+        humVal := 0;
+
+      // 7) Entrega para a UI (ajuste para o que você já usa)
+      //   Se seus métodos aceitarem string (como no seu exemplo original):
+      if Assigned(frmpeso) then
+      begin
+        frmpeso.Temperatura(FormatFloat('0.00', tempVal)); // ou simplesmente tempStr
+        frmpeso.Umidade(FormatFloat('0.00', humVal));      // crie este método caso não exista
+      end;
+
+      Application.ProcessMessages;
+    end
+    else
+    begin
+      // Linha sem vírgula — não está no formato esperado, ignore ou logue:
+      // ShowMessage('Linha inválida: ' + line);
+    end;
   end;
 end;
+
 
 procedure Tfrmmain.LazSerial1Status(Sender: TObject; Reason: THookSerialReason;
   const Value: string);
