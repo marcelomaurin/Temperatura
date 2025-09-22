@@ -87,17 +87,32 @@ bool sdAvailable = false;
 char currentMonthFile[20] = {0}; // e.g. "L202509.CSV"
 volatile bool sdBusy = false;    // <-- trava escrita durante export/export/clear
 
+// === Helpers padronizados para nome de arquivo de mês ===
+// Gera "LYYYYMM.CSV" a partir de (ano, mes)
+static inline void formatMonthFilenameFromYM(uint16_t year, uint8_t month,
+                                             char* out, size_t sz) {
+  if (month < 1)  month = 1;
+  if (month > 12) month = 12;
+  // Sempre "LYYYYMM.CSV" — SEM dia.
+  snprintf(out, sz, "L%04u%02u.CSV", (unsigned)year, (unsigned)month);
+}
+
+// Gera "LYYYYMM.CSV" a partir de YYYYMM (ex.: 202509)
+static inline void formatMonthFilenameFromYYYYMM(uint32_t yyyymm,
+                                                 char* out, size_t sz) {
+  uint16_t year  = (uint16_t)(yyyymm / 100U);
+  uint8_t  month = (uint8_t)(yyyymm % 100U);
+  formatMonthFilenameFromYM(year, month, out, sz);
+}
 
 
 bool getSdCapacityAndFree(uint64_t &totalBytes, uint64_t &freeBytes) {
   if (!sdAvailable) return false;
 
-  // Garante que o Ethernet não está selecionado no barramento SPI
+  // Garante Ethernet desabilitada no SPI
   digitalWrite(PIN_CS_ETH, HIGH);
 
-  // (mantenha aqui o mesmo "begin" que você já está usando para g_sdCard/g_sdVol)
-  // Ex.: g_sdCard.begin(SdSpiConfig(PIN_CS_SD, DEDICATED_SPI, SD_SCK_MHZ(25)));
-  //      g_sdVol.begin(&g_sdCard);
+  // (Re)inicializa card/volume com a mesma config usada no resto do código
   if (!g_sdCard.begin(SdSpiConfig(PIN_CS_SD, DEDICATED_SPI, SD_SCK_MHZ(25)))) {
     digitalWrite(PIN_CS_SD, HIGH);
     return false;
@@ -107,18 +122,15 @@ bool getSdCapacityAndFree(uint64_t &totalBytes, uint64_t &freeBytes) {
     return false;
   }
 
-  // API nova: setores por cluster (não "blocksPerCluster")
   const uint32_t sectorsPerCluster = g_sdVol.sectorsPerCluster();
   const uint32_t clusterCount      = g_sdVol.clusterCount();
 
-  // Tamanho total = clusters × setores/cluster × 512 bytes
   totalBytes = (uint64_t)clusterCount * (uint64_t)sectorsPerCluster * 512ULL;
 
-  // Livres (varre a FAT; pode demorar)
   const uint32_t freeClusters = g_sdVol.freeClusterCount();
   freeBytes = (uint64_t)freeClusters * (uint64_t)sectorsPerCluster * 512ULL;
 
-  // Libera CS do SD
+  // Solta o SD
   digitalWrite(PIN_CS_SD, HIGH);
   return true;
 }
@@ -128,11 +140,17 @@ bool getSdCapacityAndFree(uint64_t &totalBytes, uint64_t &freeBytes) {
 
 
 bool resolveHostname(const char* host, IPAddress& outIP) {
+  IPAddress dnsIP = Ethernet.dnsServerIP();
+  if (dnsIP == IPAddress(0,0,0,0)) {
+    // fallback se não houver DNS configurado
+    dnsIP = IPAddress(DEFAULT_DNS[0], DEFAULT_DNS[1], DEFAULT_DNS[2], DEFAULT_DNS[3]);
+  }
   DNSClient dns;
-  dns.begin(Ethernet.dnsServerIP());           // usa o DNS atual (estático ou DHCP)
+  dns.begin(dnsIP);
   int rc = dns.getHostByName(host, outIP);     // 1 = sucesso
   return (rc == 1);
 }
+
 
 // ---------- Utils: EEPROM ----------
 uint8_t calcChecksum(const NetConfig &c){
@@ -318,14 +336,27 @@ void printSdStatusHtml(EthernetClient &client) {
 
 // ---------- Rede ----------
 void applyNetworkFromConfig(){
-  // linhas de controle SPI
-  pinMode(53, OUTPUT); digitalWrite(53, HIGH); // SS
+  // Linha SS do MCU deve ser saída e ficar em HIGH para não virar “SPI slave”
+  #if defined(SS)
+    pinMode(SS, OUTPUT);
+    digitalWrite(SS, HIGH);
+  #else
+    // (compat) no Mega era 53; manter HIGH também
+    pinMode(53, OUTPUT);
+    digitalWrite(53, HIGH);
+  #endif
+
+  // CS dos periféricos (inativos em HIGH)
   pinMode(PIN_CS_ETH, OUTPUT);
-  pinMode(PIN_CS_SD,  OUTPUT);  digitalWrite(PIN_CS_SD, HIGH); // SD desabilitado por padrão
+  pinMode(PIN_CS_SD,  OUTPUT);
+  digitalWrite(PIN_CS_ETH, HIGH);
+  digitalWrite(PIN_CS_SD,  HIGH);
 
   // MAC
-  uint8_t macLocal[6]; for(int i=0;i<6;i++) macLocal[i]=cfg.mac[i];
+  uint8_t macLocal[6];
+  for (int i=0;i<6;i++) macLocal[i]=cfg.mac[i];
 
+  // Sobe rede
   if (cfg.use_static) {
     IPAddress ip  (cfg.ip[0],  cfg.ip[1],  cfg.ip[2],  cfg.ip[3]);
     IPAddress dns (cfg.dns[0], cfg.dns[1], cfg.dns[2], cfg.dns[3]);
@@ -344,6 +375,7 @@ void applyNetworkFromConfig(){
   // UDP para NTP
   Udp.begin(NTP_LOCAL_PORT);
 }
+
 
 // ---------- NTP ----------
 unsigned long getEpochUTC(){
@@ -400,18 +432,18 @@ void ntpSyncNow(){
 // void buildMonthFilename(int yyyymm, char* out, size_t sz) {
 //   snprintf(out, sz, "L%06d.CSV", yyyymm);
 // }
-
+/*
 void buildMonthFilename(uint32_t yyyymm, char* out, size_t sz) {
   // em AVR, unsigned long == 32 bits
   snprintf(out, sz, "L%06lu.CSV", (unsigned long)yyyymm);
 }
+*/
 
 
 
 // Pega YYYYMM (UTC) do epoch atual
-int currentYYYYMM(unsigned long epochUTC){
-  if (epochUTC == 0) return 0;
-  // Conversão simples epoch->ano/mes (mesma lógica já usada em updateMonthFileName)
+uint32_t currentYYYYMM(unsigned long epochUTC){
+  if (epochUTC == 0) return 0UL;
   unsigned long days = epochUTC / 86400UL;
   int y = 1970;
   unsigned long d = days;
@@ -422,11 +454,12 @@ int currentYYYYMM(unsigned long epochUTC){
   }
   int md[12] = {31,28,31,30,31,30,31,31,30,31,30,31};
   bool leap = (y%4==0 && (y%100!=0 || y%400==0));
-  if (leap) md[1]=29;
-  int m=0;
+  if (leap) md[1] = 29;
+  int m = 0;
   while (m<12 && d >= (unsigned long)md[m]) { d -= md[m]; m++; }
-  return (uint32_t)y*100UL + (uint32_t)(m+1);  // 202509 etc.
+  return (uint32_t)y*100UL + (uint32_t)(m+1);  // ex.: 202509
 }
+
 
 
 // ---------- LCD ----------
@@ -493,26 +526,23 @@ void sdInit(){
 
 bool sdAppendLog(float t, float h) {
   if (!sdAvailable) return false;
-  if (sdBusy)       return false;
 
-  // só grava se for a primeira vez ou variar ≥1 ponto
+  // Não deixa disputar com export/clear
+  if (sdBusy) return false;
+  sdBusy = true;
+
   bool firstLog = isnan(lastLoggedTemp) || isnan(lastLoggedHum);
   bool dt = !firstLog && (fabsf(t - lastLoggedTemp) >= 1.0f);
   bool dh = !firstLog && (fabsf(h - lastLoggedHum ) >= 1.0f);
-  if (!firstLog && !dt && !dh) return false;
+  if (!firstLog && !dt && !dh) { sdBusy=false; return false; }
 
-  // Precisa ter epoch válido (NTP ok)
   unsigned long epoch = getEpochUTC();
-  if (epoch == 0) {
-    // Sem data/hora -> não grava nada
-    return false;
-  }
+  if (epoch == 0) { sdBusy=false; return false; }
 
-  // Garante que o Ethernet NÃO está no SPI
+  // Desabilita Ethernet no barramento antes de mexer no SD
   digitalWrite(PIN_CS_ETH, HIGH);
 
-  // Nome do arquivo do mês corrente
-  if (!updateMonthFileName(epoch)) return false; // redundante aqui, mas deixa claro
+  if (!updateMonthFileName(epoch)) { sdBusy=false; return false; }
   char fname[20];
   strncpy(fname, currentMonthFile, sizeof(fname));
   fname[sizeof(fname)-1] = '\0';
@@ -522,22 +552,21 @@ bool sdAppendLog(float t, float h) {
   if (!f) {
     Serial.print(F("[SD] Falha ao abrir ")); Serial.println(fname);
     digitalWrite(PIN_CS_SD, HIGH);
+    sdBusy=false;
     return false;
   }
 
   if (newFile) f.println(F("epoch,temperature,humidity"));
-
-  f.print(epoch); f.print(',');
-  f.print(t, 2);  f.print(',');
-  f.println(h, 2);
+  f.print(epoch); f.print(','); f.print(t, 2); f.print(','); f.println(h, 2);
   f.flush();
   f.close();
 
-  // Atualiza marcadores do último valor GRAVADO
+  // Atualiza “último gravado” **apenas** após sucesso
   lastLoggedTemp = t;
   lastLoggedHum  = h;
 
   digitalWrite(PIN_CS_SD, HIGH);
+  sdBusy = false;
 
   Serial.print(F("[SD] Append ")); Serial.print(fname);
   Serial.print(F(" -> ")); Serial.print(t,2);
@@ -546,6 +575,7 @@ bool sdAppendLog(float t, float h) {
 
   return true;
 }
+
 
 // Itera linhas do CSV e manda JSON filtrado
 // yearMonth: yyyymm ou -1 para "mês atual + anterior"
@@ -564,41 +594,44 @@ void streamCsvAsJson(EthernetClient &client,
   bool first = true;
   client.print('[');
 
-  // Métricas de debug
+  // Métricas de debug (opcional)
   unsigned long filesTried = 0, filesOpened = 0;
   unsigned long linesTotal = 0, linesParsed = 0, linesEmitted = 0;
 
   auto streamFile = [&](const char* fname){
+    // Se o arquivo não existe, apenas informa (se debug) e sai
+    if (!SD.exists(fname)) {
+      if (debugLogs) {
+        Serial.print(F("[WS/LOG] arquivo inexistente: "));
+        Serial.println(fname);
+      }
+      return;
+    }
+
     filesTried++;
     File f = SD.open(fname, FILE_READ);
     if (!f) {
-      if (debugLogs) { Serial.print(F("[WS/LOG] nao abriu ")); Serial.println(fname); }
+      if (debugLogs) {
+        Serial.print(F("[WS/LOG] falha ao abrir: "));
+        Serial.println(fname);
+      }
       return;
     }
     filesOpened++;
-    /*
-    if (debugLogs) {
-      Serial.print(F("[WS/LOG] lendo ")); 
-      Serial.print(fname);
-      Serial.print(F(" size=")); 
-      Serial.println(f.size());
-    }
-    */
+
     String line;
     while (f.available()) {
       char c = f.read();
       if (c=='\n' || c=='\r') {
         if (line.length()>0) {
           linesTotal++;
-          int p1 = line.indexOf(',');
-          int p2 = line.indexOf(',', p1+1);
-          if (p1>0 && p2>p1) {
-            // parse epoch
-            unsigned long e = (unsigned long) line.substring(0,p1).toInt();
-            // descarta header "epoch,temperature,humidity" (vira 0)
-            if (e != 0) {
-              linesParsed++;
-              if ((minEpoch==0 || e>=minEpoch) && (maxEpoch==0 || e<=maxEpoch)) {
+          // pular cabeçalho
+          if (!line.startsWith(F("epoch,"))) {
+            int p1 = line.indexOf(',');
+            int p2 = line.indexOf(',', p1+1);
+            if (p1>0 && p2>p1) {
+              unsigned long e = (unsigned long) line.substring(0,p1).toInt();
+              if (e != 0 && (minEpoch==0 || e>=minEpoch) && (maxEpoch==0 || e<=maxEpoch)) {
                 String st = line.substring(p1+1, p2);
                 String sh = line.substring(p2+1);
                 if (!first) client.print(',');
@@ -609,10 +642,11 @@ void streamCsvAsJson(EthernetClient &client,
                 first=false;
                 linesEmitted++;
               }
+              linesParsed++;
             }
           }
-          line = "";
         }
+        line = "";
       } else {
         line += c;
       }
@@ -634,7 +668,7 @@ void streamCsvAsJson(EthernetClient &client,
     updateMonthFileName(prevEpoch);
     char prev[20]; strcpy(prev, currentMonthFile);
 
-    // restaura nome do mês atual (só por consistência)
+    // restaura nome do mês atual
     updateMonthFileName(nowEpoch);
 
     if (debugLogs) {
@@ -644,13 +678,14 @@ void streamCsvAsJson(EthernetClient &client,
       Serial.print(F(" maxEpoch=")); Serial.println(maxEpoch);
     }
 
+    // Agora só tenta o que existir
     streamFile(prev);
     streamFile(cur);
   }
 
   client.println(']');
 
-  // ---- SPI handoff: reabilita SD ----
+  // ---- solta o SD ----
   digitalWrite(PIN_CS_SD, HIGH);
 
   if (debugLogs) {
@@ -937,7 +972,7 @@ void handleHistoricoPage(EthernetClient &client){
     "</main></div></div>" // fecha main/row/container
   ));
 
-  // Scripts
+    // Scripts
   client.println(F(
     "<script src='https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js'></script>"
     "<script>"
@@ -953,34 +988,46 @@ void handleHistoricoPage(EthernetClient &client){
     "};"
 
     "const gT=new Chart(document.getElementById('chartT'),{type:'line',"
-      "data:{labels:[],datasets:[{label:'Temperatura (°C)',borderColor:'#dc3545',backgroundColor:'rgba(220,53,69,0.2)',data:[]}]},"
+      "data:{labels:[],datasets:[{label:'Temperatura (°C)',data:[]}]},"
       "options:chartOptions});"
 
     "const gH=new Chart(document.getElementById('chartH'),{type:'line',"
-      "data:{labels:[],datasets:[{label:'Umidade (%RH)',borderColor:'#0d6efd',backgroundColor:'rgba(13,110,253,0.2)',data:[]}]},"
+      "data:{labels:[],datasets:[{label:'Umidade (%RH)',data:[]}]},"
       "options:chartOptions});"
 
-    "async function load24h(){"
-      "try{const r=await fetch('/ws/log?hours=24',{cache:'no-store'}); if(!r.ok)return;"
-          "const j=await r.json(); const d=toSeries(j);"
-          "gT.data.labels=d.labels; gT.data.datasets[0].data=d.t; gT.update();"
-          "gH.data.labels=d.labels; gH.data.datasets[0].data=d.h; gH.update();"
-      "}catch(e){}}"
+    // ===== Helpers de mês =====
+    "function ymNow(){const d=new Date();const m=('0'+(d.getMonth()+1)).slice(-2);return d.getFullYear()+'-'+m;}"
+    "function yyyymmFromInput(v){return (/^\\d{4}-\\d{2}$/).test(v)?v.replace('-',''):null;}"
 
-    "document.getElementById('btnMes').addEventListener('click',async()=>{"
-      "const y=document.getElementById('yyyymm').value.trim();"
-      "if(!/^\\d{4}-\\d{2}$/.test(y)){alert('Use YYYY-MM');return;}"
-      "const ym=y.replace('-','');"
-      "try{const r=await fetch('/ws/log?yyyymm='+ym,{cache:'no-store'});"
-          "if(!r.ok){alert('Sem dados para o m&ecirc;s.');return;}"
-          "const j=await r.json(); const d=toSeries(j);"
-          "gT.data.labels=d.labels; gT.data.datasets[0].data=d.t; gT.update();"
-          "gH.data.labels=d.labels; gH.data.datasets[0].data=d.h; gH.update();"
-      "}catch(e){}});"
+    // ===== Carrega mês (sempre LYYYYMM.CSV) =====
+    "async function loadMonth(yyyymm){"
+      "try{const r=await fetch('/ws/log?yyyymm='+yyyymm,{cache:'no-store'});"
+      "if(!r.ok){console.warn('Sem dados para o mês', yyyymm);return;}"
+      "const j=await r.json(); const d=toSeries(j);"
+      "gT.data.labels=d.labels; gT.data.datasets[0].data=d.t; gT.update();"
+      "gH.data.labels=d.labels; gH.data.datasets[0].data=d.h; gH.update();"
+      "}catch(e){console.error(e);}"
+    "}"
 
-    "load24h();"
+    // ===== UI: input mês e botões =====
+    "const inp=document.getElementById('yyyymm');"
+    "const btnMes=document.getElementById('btnMes');"
+    "inp.value = ymNow();"
+
+    "btnMes.addEventListener('click',()=>{"
+      "const ym = yyyymmFromInput(inp.value);"
+      "if(!ym){alert('Use YYYY-MM');return;}"
+      "loadMonth(ym);"
+    "});"
+
+    // ===== Inicialização: SEM 24h; SEM janela móvel =====
+    "(function init(){"
+      "const ym = yyyymmFromInput(ymNow());"
+      "if(ym) loadMonth(ym);"
+    "})();"
     "</script></body></html>"
   ));
+
 }
 
 
@@ -1096,9 +1143,7 @@ void handleCsvDownload(EthernetClient &client, const String &query) {
   Serial.print  (F("[WS/CSV] query=")); Serial.println(query);
   Serial.print  (F("[WS/CSV] sdAvailable=")); Serial.println(sdAvailable ? F("true") : F("false"));
 
-  // 1) Verifica SD
   if (!sdAvailable) {
-    Serial.println(F("[WS/CSV] SD indisponivel -> HTML aviso"));
     sendHtmlHeader(client);
     client.println(F("<!doctype html><html><head><meta charset='utf-8'><title>Exportar CSV</title></head><body>"));
     client.println(F("<p style='padding:1rem'>SD n&atilde;o dispon&iacute;vel.</p></body></html>"));
@@ -1107,19 +1152,19 @@ void handleCsvDownload(EthernetClient &client, const String &query) {
     return;
   }
 
-  // 2) Resolve nome do arquivo (8.3): "LYYYYMM.CSV"
   String v_ym = getQueryParam(query, "yyyymm");
   Serial.print(F("[WS/CSV] yyyymm(param)=")); Serial.println(v_ym);
 
   char fname[20];
   if (v_ym.length() == 6) {
     uint32_t yyyymm = (uint32_t)v_ym.toInt();
-    buildMonthFilename(yyyymm, fname, sizeof(fname));  // -> "L202509.CSV"
+    //buildMonthFilename(yyyymm, fname, sizeof(fname));
+    formatMonthFilenameFromYYYYMM(yyyymm, fname, sizeof(fname));
+
     Serial.print(F("[WS/CSV] usando yyyymm informado -> ")); Serial.println(fname);
   } else {
     uint32_t yyyymm = currentYYYYMM(getEpochUTC());
     if (yyyymm == 0UL) {
-      Serial.println(F("[WS/CSV] NTP/epoch=0 -> sem mes atual; HTML aviso"));
       sendHtmlHeader(client);
       client.println(F("<!doctype html><html><head><meta charset='utf-8'><title>Exportar CSV</title></head><body>"));
       client.println(F("<p style='padding:1rem'>Sem data/hora v&aacute;lida (NTP). "
@@ -1128,13 +1173,13 @@ void handleCsvDownload(EthernetClient &client, const String &query) {
       Serial.println(F("[WS/CSV] ====== handleCsvDownload end ======\n"));
       return;
     }
-    buildMonthFilename(yyyymm, fname, sizeof(fname));
+    //buildMonthFilename(yyyymm, fname, sizeof(fname));
+    formatMonthFilenameFromYYYYMM(yyyymm, fname, sizeof(fname));
+
     Serial.print(F("[WS/CSV] yyyymm atual (NTP) -> ")); Serial.println(fname);
   }
 
-  // 3) Se não existir, informa de forma amigável (não 404)
   if (!SD.exists(fname)) {
-    Serial.print(F("[WS/CSV] arquivo inexistente: ")); Serial.println(fname);
     sendHtmlHeader(client);
     client.print(F("<!doctype html><html><head><meta charset='utf-8'><title>Exportar CSV</title></head><body>"));
     client.print(F("<p style='padding:1rem'>Arquivo inexistente para o per&iacute;odo solicitado: <code>"));
@@ -1145,16 +1190,22 @@ void handleCsvDownload(EthernetClient &client, const String &query) {
     return;
   }
 
-  // 4) Trava escrita e handoff SPI
-  Serial.println(F("[WS/CSV] travando sdBusy e dessel. Ethernet"));
-  sdBusy = false;
+  // --------- LOCK REAL do SD ---------
+  if (sdBusy) {
+    sendHtmlHeader(client);
+    client.println(F("<!doctype html><html><head><meta charset='utf-8'><title>Exportar CSV</title></head><body>"));
+    client.println(F("<p style='padding:1rem'>SD est&aacute; em uso. Tente novamente em instantes.</p></body></html>"));
+    Serial.println(F("[WS/CSV] sdBusy=true -> negando export no momento"));
+    return;
+  }
+  sdBusy = true;
+
   digitalWrite(PIN_CS_ETH, HIGH);
   delay(1);
 
   File f = SD.open(fname, FILE_READ);
   if (!f) {
-    Serial.println(F("[WS/CSV] FALHA ao abrir arquivo para leitura"));
-    sdBusy = false;
+    sdBusy = false;                       // desbloqueia antes de sair
     digitalWrite(PIN_CS_SD, HIGH);
     sendHtmlHeader(client);
     client.println(F("<!doctype html><html><head><meta charset='utf-8'><title>Exportar CSV</title></head><body>"));
@@ -1165,10 +1216,7 @@ void handleCsvDownload(EthernetClient &client, const String &query) {
   }
 
   const unsigned long expectedSize = f.size();
-  Serial.print(F("[WS/CSV] file.size=")); Serial.println(expectedSize);
 
-  // 5) Cabeçalhos de download
-  Serial.println(F("[WS/CSV] enviando cabecalhos HTTP de download"));
   client.println(F("HTTP/1.1 200 OK"));
   client.println(F("Content-Type: text/csv; charset=utf-8"));
   client.print  (F("Content-Disposition: attachment; filename=\""));
@@ -1177,81 +1225,39 @@ void handleCsvDownload(EthernetClient &client, const String &query) {
   client.println(F("Connection: close"));
   client.println();
 
-  // 6) Streaming do arquivo (com watchdog/diagnóstico)
-  Serial.println(F("[WS/CSV] iniciando streaming do arquivo"));
   const size_t BUFSZ = 512;
   uint8_t buf[BUFSZ];
   unsigned long totalBytes = 0;
-  unsigned long chunks = 0;
   unsigned long lastProgressMs = millis();
-  unsigned long lastReportMs   = millis();
-  unsigned long lastPos        = f.position();
-
-  // limites de segurança
-  const unsigned long MAX_IDLE_MS     = 3000;   // sem progresso por >3s -> aborta
-  const unsigned long MAX_TOTAL_MS    = 120000; // 120s totais -> aborta
-  const unsigned long REPORT_EVERY_MS = 2000;   // log a cada 2s
+  const unsigned long MAX_IDLE_MS  = 3000;
+  const unsigned long MAX_TOTAL_MS = 120000;
+  unsigned long startMs = millis();
 
   while (f.available()) {
-    // cliente ainda está conectado?
-    if (!client.connected()) {
-      Serial.println(F("[WS/CSV] cliente desconectou durante streaming -> abort"));
-      break;
-    }
+    if (!client.connected()) break;
 
-    int avail = f.available();
+    int avail  = f.available();
     int toRead = (avail > (int)BUFSZ) ? (int)BUFSZ : avail;
     int n = f.read(buf, toRead);
 
     if (n > 0) {
       client.write(buf, (size_t)n);
       totalBytes += (unsigned long)n;
-      chunks++;
       lastProgressMs = millis();
-
-      // relatório periódico
-      if (millis() - lastReportMs >= REPORT_EVERY_MS) {
-        unsigned long pos = f.position();
-        Serial.print(F("[WS/CSV] progress pos=")); Serial.print(pos);
-        Serial.print(F("/")); Serial.print(expectedSize);
-        Serial.print(F(" bytes=")); Serial.print(totalBytes);
-        Serial.print(F(" chunks=")); Serial.println(chunks);
-        lastReportMs = millis();
-
-        // se nenhuma mudança de posição apesar de n>0 (muito improvável), loga
-        if (pos == lastPos) {
-          Serial.println(F("[WS/CSV] AVISO: posicao de arquivo nao avançou."));
-        }
-        lastPos = pos;
-      }
     } else {
-      // n == 0 (ou -1) com available()>0 -> situação anômala; espera breve
       delay(2);
-      if (millis() - lastProgressMs > MAX_IDLE_MS) {
-        Serial.println(F("[WS/CSV] ERRO: sem progresso na leitura por muito tempo -> abort"));
-        break;
-      }
+      if (millis() - lastProgressMs > MAX_IDLE_MS) break;
     }
-
-    // timeout geral de proteção
-    if (millis() - t0 > MAX_TOTAL_MS) {
-      Serial.println(F("[WS/CSV] ERRO: timeout total atingido -> abort"));
-      break;
-    }
+    if (millis() - startMs > MAX_TOTAL_MS) break;
   }
 
   f.close();
-  Serial.print(F("[WS/CSV] streaming concluido. bytes=")); Serial.print(totalBytes);
-  Serial.print(F(" chunks=")); Serial.println(chunks);
-  Serial.print(F("[WS/CSV] esperado=")); Serial.print(expectedSize);
-  Serial.print(F(" restante(f.available)=")); Serial.println(f.available());
-
-  // 7) Libera SPI e destrava SD
   digitalWrite(PIN_CS_SD, HIGH);
-  sdBusy = false;
-  Serial.println(F("[WS/CSV] SD liberado e sdBusy=false"));
+  sdBusy = false;                         // **sempre** destrava ao final
 
-  Serial.print(F("[WS/CSV] total(ms)=")); Serial.println(millis()-t0);
+  Serial.print(F("[WS/CSV] bytes enviados=")); Serial.println(totalBytes);
+  Serial.print(F("[WS/CSV] esperado="));       Serial.println(expectedSize);
+  Serial.print(F("[WS/CSV] total(ms)="));      Serial.println(millis()-t0);
   Serial.println(F("[WS/CSV] ====== handleCsvDownload end ======\n"));
 }
 
@@ -1264,35 +1270,37 @@ void handleCsvClear(EthernetClient &client, const String &query) {
   Serial.print  (F("[CLR] sdAvailable=")); Serial.println(sdAvailable ? F("true") : F("false"));
   Serial.print  (F("[CLR] sdBusy="));      Serial.println(sdBusy ? F("true") : F("false"));
 
-  // 1) Verifica SD
   if (!sdAvailable) {
-    Serial.println(F("[CLR] SD indisponivel. Abortando."));
     sendHtmlHeader(client);
     client.println(F("<!doctype html><html><head><meta charset='utf-8'><title>Limpar SD</title></head><body>"));
     client.println(F("<p style='padding:1rem'>SD n&atilde;o dispon&iacute;vel.</p></body></html>"));
     return;
   }
 
-  // Zera marcadores do último gravado (para evitar bloqueio de variação mínima após limpeza)
+  if (sdBusy) {
+    sendHtmlHeader(client);
+    client.println(F("<!doctype html><html><head><meta charset='utf-8'><title>Limpar SD</title></head><body>"));
+    client.println(F("<p style='padding:1rem'>SD est&aacute; em uso. Tente novamente em instantes.</p></body></html>"));
+    Serial.println(F("[CLR] sdBusy=true -> negando limpeza agora"));
+    return;
+  }
+
+  // Vai limpar: impede que novos logs gravem enquanto remove
+  sdBusy = true;
+
   lastLoggedTemp = NAN;
   lastLoggedHum  = NAN;
-  Serial.println(F("[CLR] lastLoggedTemp/lastLoggedHum resetados para NAN."));
 
-  // 2) Determina arquivo "LYYYYMM.CSV"
   String v_ym = getQueryParam(query, "yyyymm");
-  Serial.print(F("[CLR] yyyymm param=")); Serial.println(v_ym);
-
   char fname[20];
   uint32_t yyyymm;
 
   if (v_ym.length() == 6) {
     yyyymm = (uint32_t)v_ym.toInt();
-    Serial.print(F("[CLR] yyyymm parseado=")); Serial.println((unsigned long)yyyymm);
   } else {
     yyyymm = currentYYYYMM(getEpochUTC());
-    Serial.print(F("[CLR] yyyymm derivado do NTP=")); Serial.println((unsigned long)yyyymm);
     if (yyyymm == 0UL) {
-      Serial.println(F("[CLR] Sem epoch valido (NTP). Abortando limpeza."));
+      sdBusy = false;
       sendHtmlHeader(client);
       client.println(F("<!doctype html><html><head><meta charset='utf-8'><title>Limpar SD</title></head><body>"));
       client.println(F("<p style='padding:1rem'>Sem data/hora v&aacute;lida (NTP). "
@@ -1300,36 +1308,22 @@ void handleCsvClear(EthernetClient &client, const String &query) {
       return;
     }
   }
-  buildMonthFilename(yyyymm, fname, sizeof(fname));
-  Serial.print(F("[CLR] Arquivo alvo=")); Serial.println(fname);
+  //buildMonthFilename(yyyymm, fname, sizeof(fname));
+  formatMonthFilenameFromYYYYMM(yyyymm, fname, sizeof(fname));
 
-  // 3) Remove com trava + handoff SPI
-  Serial.println(F("[CLR] Travando SD e liberando barramento SPI..."));
-  sdBusy = false;                       // impede writes durante a remoção
-  digitalWrite(PIN_CS_ETH, HIGH);      // desabilita W5100/W5500
-  delay(2);                            // pequeno respiro
+
+  digitalWrite(PIN_CS_ETH, HIGH);
+  delay(2);
 
   bool existed = SD.exists(fname);
-  Serial.print(F("[CLR] SD.exists antes=")); Serial.println(existed ? F("true") : F("false"));
-
   bool ok = false;
   if (existed) {
-    Serial.println(F("[CLR] Tentando SD.remove..."));
     ok = SD.remove(fname);
-    Serial.print(F("[CLR] SD.remove resultado=")); Serial.println(ok ? F("true") : F("false"));
-
-    bool stillThere = SD.exists(fname);
-    Serial.print(F("[CLR] SD.exists depois=")); Serial.println(stillThere ? F("true") : F("false"));
-  } else {
-    Serial.println(F("[CLR] Arquivo nao existia; nada a remover."));
   }
 
-  // 4) Libera SPI e destrava
   digitalWrite(PIN_CS_SD, HIGH);
-  sdBusy = false;
-  Serial.println(F("[CLR] Destravado."));
+  sdBusy = false; // destrava
 
-  // 5) Resposta HTML
   sendHtmlHeader(client);
   client.println(F("<!doctype html><html><head><meta charset='utf-8'><title>Limpar SD</title>"
                    "<link href='https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css' rel='stylesheet'>"
@@ -1366,73 +1360,232 @@ void handleJsonNow(EthernetClient &client){
   }
 }
 
+
+
+// ===== Helper: mostra progresso no LCD (16x2) =====
+// Coloque este bloco APENAS uma vez no projeto (por exemplo, acima de streamMonthCsvAsJson)
+#ifndef LCD_PROGRESS_HELPER_DEFINED
+#define LCD_PROGRESS_HELPER_DEFINED
+
+static void lcdShowProgress(const char* label, uint32_t done, uint32_t total) {
+  if (total == 0) total = 1;
+  const uint8_t cols = 16;
+  uint8_t filled = (uint32_t)((uint64_t)done * cols / total);
+  if (filled > cols) filled = cols;
+
+  // Linha 0: label (corta em 16)
+  char l0[17]; memset(l0, ' ', 16); l0[16] = '\0';
+  size_t n = strnlen(label, 16);
+  memcpy(l0, label, n);
+  lcd.setCursor(0, 0); lcd.print(l0);
+
+  // Linha 1: barra + percentual
+  char bar[17];
+  for (uint8_t i = 0; i < cols; i++) bar[i] = (i < filled ? '#' : '-');
+  bar[16] = '\0';
+  uint8_t pct = (uint8_t)((uint64_t)done * 100 / total);
+
+  lcd.setCursor(0, 1);  lcd.print(bar);
+  char pbuf[5]; snprintf(pbuf, sizeof(pbuf), "%3u%%", pct);
+  lcd.setCursor(12, 1); lcd.print(pbuf);
+}
+
+#endif // LCD_PROGRESS_HELPER_DEFINED
+
+
 // Lê APENAS o arquivo do mês informado (yyyymm) e envia JSON.
 // Não cria nada, só abre FILE_READ. Se não existir, envia [].
+// Agora exibe progresso no LCD enquanto faz o streaming.
+// Lê APENAS o arquivo do mês informado (yyyymm) e envia JSON.
+// Não cria nada; se não existir, envia [].
+// Implementação robusta: laço por bytes lidos (totalSize) + watchdog.
+
+// Lê APENAS o arquivo do mês informado (yyyymm) e envia JSON.
+// Usa a API File (texto) do SD, sem FsFile.
+// Leitura por tamanho, retry inicial, watchdog e progresso no LCD.
 void streamMonthCsvAsJson(EthernetClient &client, uint32_t yyyymm) {
   char fname[20];
-  buildMonthFilename(yyyymm, fname, sizeof(fname));   // "LYYYYMM.CSV"
+  formatMonthFilenameFromYYYYMM(yyyymm, fname, sizeof(fname));
 
   Serial.print(F("[LOG] streamMonthCsvAsJson yyyymm="));
   Serial.print(yyyymm);
   Serial.print(F(" arquivo="));
   Serial.println(fname);
 
-  // Habilita JSON
-  // (use esta função APENAS de dentro de handlers que já mandaram o header)
+  // Impede concorrência com gravação/export/clear
+  if (sdBusy) {
+    Serial.println(F("[LOG] SD ocupado por outra operação. Retornando []."));
+    client.println(F("[]"));
+    return;
+  }
+  sdBusy = true;
 
-  // Apenas leitura — nunca cria:
-  digitalWrite(PIN_CS_ETH, HIGH);   // desabilita Ethernet no SPI
+  // Garante ETH fora do barramento antes de tocar no SD
+  digitalWrite(PIN_CS_ETH, HIGH);
+
   if (!SD.exists(fname)) {
     Serial.println(F("[LOG] Arquivo não existe. Retornando []."));
     client.println(F("[]"));
+    sdBusy = false;
     digitalWrite(PIN_CS_SD, HIGH);
+    #ifdef LCD_PROGRESS_HELPER_DEFINED
+      lcdShowProgress("Arquivo AUSENTE", 1, 1);
+      delay(600);
+      printIPLine(); if (!isnan(lastTemp)&&!isnan(lastHum)) printTHLine();
+    #endif
     return;
   }
 
-  File f = SD.open(fname, FILE_READ);
+  File f = SD.open(fname, FILE_READ);  // <<< API "texto"
   if (!f) {
-    Serial.println(F("[LOG] Falha ao abrir para leitura. Retornando []."));
+    Serial.println(F("[LOG] Falha ao abrir (FILE_READ). Retornando []."));
     client.println(F("[]"));
+    sdBusy = false;
     digitalWrite(PIN_CS_SD, HIGH);
+    #ifdef LCD_PROGRESS_HELPER_DEFINED
+      lcdShowProgress("Falha ao abrir", 1, 1);
+      delay(600);
+      printIPLine(); if (!isnan(lastTemp)&&!isnan(lastHum)) printTHLine();
+    #endif
     return;
   }
+
+  // Ponteiro no início e pega tamanho
+  f.seek(0);
+  const uint32_t totalSize = (uint32_t)f.size();
+  uint32_t bytesRead = 0;
+
+  // Label do LCD
+  #ifdef LCD_PROGRESS_HELPER_DEFINED
+    char label[17]; label[16] = '\0';
+    {
+      const char* pref = "Enviando ";
+      size_t lp = strlen(pref), lf = strlen(fname);
+      if (lp + lf <= 16) snprintf(label, sizeof(label), "%s%s", pref, fname);
+      else snprintf(label, sizeof(label), "%s", fname);
+    }
+    lcdShowProgress(label, 0, totalSize);
+    unsigned long lastLcdMs = 0;
+  #endif
 
   Serial.println(F("[LOG] Lendo/streaming CSV..."));
   client.print('[');
   bool first = true;
 
+  // Buffer e montagem de linhas
+  const size_t BUFSZ = 256;
+  uint8_t buf[BUFSZ];
   String line;
-  while (f.available()) {
-    char c = f.read();
-    if (c == '\n' || c == '\r') {
-      if (line.length() > 0) {
-        // pular cabeçalho "epoch,temperature,humidity"
-        if (!line.startsWith(F("epoch,"))) {
-          int p1 = line.indexOf(',');
-          int p2 = line.indexOf(',', p1 + 1);
-          if (p1 > 0 && p2 > p1) {
-            unsigned long e = line.substring(0, p1).toInt();
-            String st = line.substring(p1 + 1, p2);
-            String sh = line.substring(p2 + 1);
-            if (!first) client.print(',');
-            client.print(F("{\"epoch\":")); client.print(e);
-            client.print(F(",\"temperature\":")); client.print(st);
-            client.print(F(",\"humidity\":")); client.print(sh);
-            client.print('}');
-            first = false;
+
+  // Watchdogs
+  unsigned long lastProgressMs = millis();
+  const unsigned long MAX_IDLE_MS  = 2000;   // 2s sem progresso => aborta
+  const unsigned long MAX_TOTAL_MS = 120000; // 120s hard limit
+  unsigned long startMs = millis();
+
+  while (bytesRead < totalSize) {
+    size_t toRead = totalSize - bytesRead;
+    if (toRead > BUFSZ) toRead = BUFSZ;
+
+    int n = f.read(buf, (int)toRead);
+
+    // Retry único se o primeiro read voltar 0 (algumas libs retornam 0 antes do primeiro bloco)
+    if (n == 0 && bytesRead == 0) {
+      Serial.println(F("[LOG] Primeiro read=0; seek(0) e tentar novamente..."));
+      f.seek(0);
+      n = f.read(buf, (int)toRead);
+    }
+
+    if (n > 0) {
+      bytesRead += (uint32_t)n;
+      lastProgressMs = millis();
+
+      #ifdef LCD_PROGRESS_HELPER_DEFINED
+        if (lastProgressMs - lastLcdMs >= 150) {
+          lcdShowProgress(label, bytesRead, totalSize);
+          lastLcdMs = lastProgressMs;
+        }
+      #endif
+
+      // Constrói JSON linha a linha (aceita \n e \r\n)
+      for (int i = 0; i < n; i++) {
+        char c = (char)buf[i];
+        if (c == '\n' || c == '\r') {
+          if (line.length() > 0) {
+            if (!line.startsWith(F("epoch,"))) {
+              int p1 = line.indexOf(',');
+              int p2 = line.indexOf(',', p1 + 1);
+              if (p1 > 0 && p2 > p1) {
+                unsigned long e = line.substring(0, p1).toInt();
+                String st = line.substring(p1 + 1, p2);
+                String sh = line.substring(p2 + 1);
+                if (!first) client.print(',');
+                client.print(F("{\"epoch\":")); client.print(e);
+                client.print(F(",\"temperature\":")); client.print(st);
+                client.print(F(",\"humidity\":")); client.print(sh);
+                client.print('}');
+                first = false;
+              }
+            }
           }
+          line = "";
+        } else {
+          line += c;
         }
       }
-      line = "";
     } else {
-      line += c;
+      // Nada lido — pequena espera e checa watchdogs
+      delay(2);
+      if (millis() - lastProgressMs > MAX_IDLE_MS) {
+        Serial.println(F("[LOG] Idle timeout lendo SD — abortando para evitar loop infinito."));
+        break;
+      }
+    }
+
+    if (millis() - startMs > MAX_TOTAL_MS) {
+      Serial.println(F("[LOG] Max total time alcançado — abortando leitura."));
+      break;
     }
   }
+
+  // Última linha (sem newline no fim do arquivo)
+  if (line.length() > 0 && !line.startsWith(F("epoch,"))) {
+    int p1 = line.indexOf(',');
+    int p2 = line.indexOf(',', p1 + 1);
+    if (p1 > 0 && p2 > p1) {
+      unsigned long e = line.substring(0, p1).toInt();
+      String st = line.substring(p1 + 1, p2);
+      String sh = line.substring(p2 + 1);
+      if (!first) client.print(',');
+      client.print(F("{\"epoch\":")); client.print(e);
+      client.print(F(",\"temperature\":")); client.print(st);
+      client.print(F(",\"humidity\":")); client.print(sh);
+      client.print('}');
+      first = false;
+    }
+  }
+
   f.close();
   client.println(']');
 
-  digitalWrite(PIN_CS_SD, HIGH); // solta SD
-  Serial.println(F("[LOG] Streaming concluído."));
+  // Finaliza barra e solta o SD/lock
+  #ifdef LCD_PROGRESS_HELPER_DEFINED
+    lcdShowProgress(label, bytesRead, totalSize);
+  #endif
+  digitalWrite(PIN_CS_SD, HIGH);
+  sdBusy = false;
+
+  Serial.print(F("[LOG] Streaming concluído. bytesRead="));
+  Serial.print(bytesRead);
+  Serial.print(F("/"));
+  Serial.println(totalSize);
+
+  #ifdef LCD_PROGRESS_HELPER_DEFINED
+    delay(600);
+    printIPLine();
+    if (!isnan(lastTemp) && !isnan(lastHum)) printTHLine();
+    else { lcd.setCursor(0,1); lcd.print("Aguardando DHT "); }
+  #endif
 }
 
 
@@ -1442,17 +1595,19 @@ void handleJsonLog(EthernetClient &client, const String &query){
   Serial.print  (F("[WS/LOG] query=")); Serial.println(query);
   Serial.print  (F("[WS/LOG] sdAvailable=")); Serial.println(sdAvailable ? F("true") : F("false"));
 
-  if (!sdAvailable) { 
+  if (!sdAvailable) {
     Serial.println(F("[WS/LOG] SD indisponivel -> 404"));
-    sendNotFound(client); 
-    return; 
+    sendNotFound(client);
+    return;
   }
 
   sendJsonHeader(client);
 
+  // Parâmetros
   String v_hours = getQueryParam(query, "hours");
   String v_ym    = getQueryParam(query, "yyyymm");
 
+  // ===================== MODO HOURS (janela móvel) =====================
   if (v_hours.length()) {
     unsigned long hrs = (unsigned long)v_hours.toInt();
     if (hrs == 0) hrs = 24;
@@ -1462,8 +1617,8 @@ void handleJsonLog(EthernetClient &client, const String &query){
     Serial.print(F(" nowEpoch="));                Serial.println(nowEpoch);
 
     if (nowEpoch == 0UL) {
-      // Sem NTP válido -> NÃO arrisca devolver mês inteiro; retorna vazio
-      Serial.println(F("[WS/LOG] epoch=0 -> sem referencia de tempo; retornando []"));
+      // Sem referência de tempo -> não arriscamos
+      Serial.println(F("[WS/LOG] epoch=0 -> retornando []"));
       client.println(F("[]"));
       Serial.print(F("[WS/LOG] total(ms)=")); Serial.println(millis()-t0);
       Serial.println(F("[WS/LOG] ====== handleJsonLog end ======\n"));
@@ -1473,7 +1628,7 @@ void handleJsonLog(EthernetClient &client, const String &query){
     unsigned long minEpoch = (nowEpoch > hrs*3600UL) ? (nowEpoch - hrs*3600UL) : 0UL;
     Serial.print(F("[WS/LOG] minEpoch=")); Serial.println(minEpoch);
 
-    // Lê apenas arquivos do mês atual e anterior e **filtra por epoch**
+    // Lê mês atual + anterior e filtra por epoch
     streamCsvAsJson(client, minEpoch, 0, -1, /*debugLogs=*/true);
 
     Serial.print(F("[WS/LOG] total(ms)=")); Serial.println(millis()-t0);
@@ -1481,32 +1636,75 @@ void handleJsonLog(EthernetClient &client, const String &query){
     return;
   }
 
-  if (v_ym.length() == 6) {
-    int yyyymm = v_ym.toInt(); // ex 202509
-    Serial.print(F("[WS/LOG] modo yyyymm, yyyymm=")); Serial.println(yyyymm);
+  // ===================== MODO YYYYMM (mês fechado) =====================
+  auto isSixDigits = [](const String& s)->bool{
+    if (s.length() != 6) return false;
+    for (uint8_t i=0;i<6;i++){ char c = s[i]; if (c<'0'||c>'9') return false; }
+    return true;
+  };
 
-    // Envia o arquivo inteiro do mês pedido (sem criar nada)
-    streamCsvAsJson(client, 0, 0, yyyymm, /*debugLogs=*/true);
+  if (isSixDigits(v_ym)) {
+    // Use 32 bits para evitar overflow (ex.: 202509 cabe em uint32_t)
+    uint32_t yyyymm = (uint32_t)v_ym.toInt();
+    Serial.print(F("[WS/LOG] modo yyyymm (fornecido), yyyymm="));
+    Serial.println((unsigned long)yyyymm);
+
+    // Envia exatamente LYYYYMM.CSV (sem criar nada)
+    streamMonthCsvAsJson(client, yyyymm);
 
     Serial.print(F("[WS/LOG] total(ms)=")); Serial.println(millis()-t0);
     Serial.println(F("[WS/LOG] ====== handleJsonLog end ======\n"));
     return;
   }
 
-  // default: 24h
-  Serial.println(F("[WS/LOG] default -> hours=24"));
-  unsigned long nowEpoch = getEpochUTC();
-  if (nowEpoch == 0UL) {
-    Serial.println(F("[WS/LOG] epoch=0 no default; retornando []"));
-    client.println(F("[]"));
+  // ============== FALLBACK: mês atual (NTP) ou mais recente no SD ==============
+  uint32_t fallbackYm = currentYYYYMM(getEpochUTC());
+  if (fallbackYm == 0UL) {
+    // Sem NTP: varre o SD por LYYYYMM.CSV e pega o maior
+    digitalWrite(PIN_CS_ETH, HIGH); // libera barramento para SD
+    File root = SD.open("/");
+    uint32_t best = 0;
+    if (root) {
+      File entry = root.openNextFile();
+      while (entry) {
+        if (!entry.isDirectory()) {
+          char nm[32] = {0};
+          entry.getName(nm, sizeof(nm));
+          // Esperado: "L" + 6 dígitos + ".CSV"  (11 chars)
+          // Ex.: L202509.CSV
+          size_t len = strlen(nm);
+          if (len == 11 && nm[0]=='L' && nm[7]=='.' && nm[8]=='C' && nm[9]=='S' && nm[10]=='V') {
+            bool ok = true;
+            for (int i=1;i<=6;i++){ if (nm[i]<'0'||nm[i]>'9'){ ok=false; break; } }
+            if (ok) {
+              char buf[7]; memcpy(buf, nm+1, 6); buf[6]='\0';
+              uint32_t val = (uint32_t)atoi(buf);
+              if (val > best) best = val;
+            }
+          }
+        }
+        entry.close();
+        entry = root.openNextFile();
+      }
+      root.close();
+    }
+    digitalWrite(PIN_CS_SD, HIGH); // solta SD
+    fallbackYm = best;
+  }
+
+  if (fallbackYm > 0) {
+    Serial.print(F("[WS/LOG] yyyymm inválido/ausente -> usando atual/mais recente: "));
+    Serial.println((unsigned long)fallbackYm);
+    streamMonthCsvAsJson(client, fallbackYm);
   } else {
-    unsigned long minEpoch = (nowEpoch > 24UL*3600UL) ? (nowEpoch - 24UL*3600UL) : 0UL;
-    streamCsvAsJson(client, minEpoch, 0, -1, /*debugLogs=*/true);
+    Serial.println(F("[WS/LOG] nenhum mês disponível -> []"));
+    client.println(F("[]"));
   }
 
   Serial.print(F("[WS/LOG] total(ms)=")); Serial.println(millis()-t0);
   Serial.println(F("[WS/LOG] ====== handleJsonLog end ======\n"));
 }
+
 
 
 
@@ -1586,30 +1784,21 @@ void sampleSensorIfNeeded(){
   float t=dht.readTemperature(), h=dht.readHumidity();
   if(!isnan(t) && !isnan(h)){
     lastTemp=t; lastHum=h;
+
     if(wasBelowThreshold && lastTemp>=THRESH_C){ beep(1800,180); wasBelowThreshold=false; }
     else if(lastTemp<THRESH_C){ wasBelowThreshold=true; }
 
-    if(sdAvailable){
-      if (sdAvailable) {
-        // grava apenas se mudou ≥ 1.0 °C OU ≥ 1.0 %RH em relação ao último GRAVADO
-        bool firstLog = isnan(lastLoggedTemp) || isnan(lastLoggedHum);
-        bool dt = !firstLog && (fabsf(lastTemp - lastLoggedTemp) >= 1.0f);
-        bool dh = !firstLog && (fabsf(lastHum  - lastLoggedHum ) >= 1.0f);
-
-        if (firstLog || dt || dh) {
-          if (sdAppendLog(lastTemp, lastHum)) {   // só atualiza se gravou
-            lastLoggedTemp = lastTemp;
-            lastLoggedHum  = lastHum;
-          }
-        }
-      }
-
+    if (sdAvailable) {
+      // sdAppendLog já decide se deve gravar (mudança ≥1.0) e faz o lock
+      (void)sdAppendLog(lastTemp, lastHum);
     }
+
     if(ipSplashDone){ printIPLine(); printTHLine(); }
   }
   delay(60);
   digitalWrite(PIN_LED, LOW);
 }
+
 
 void loop(){
   // splash
@@ -1627,4 +1816,50 @@ void loop(){
   // HTTP
   EthernetClient client = server.available();
   if(client){ handleHttp(client); delay(1); client.stop(); }
+}
+
+
+// Retorna YYYYMM atual (via NTP). Se NTP não disponível, varre o SD e retorna o LYYYYMM mais recente.
+// Se nada encontrado, retorna 0.
+uint32_t getCurrentOrLatestYYYYMM() {
+  // 1) Tenta via NTP
+  uint32_t yyyymm = currentYYYYMM(getEpochUTC());
+  if (yyyymm != 0UL) return yyyymm;
+
+  // 2) Fallback: varre o SD por LYYYYMM.CSV e pega o maior
+  if (!sdAvailable) return 0UL;
+
+  digitalWrite(PIN_CS_ETH, HIGH);  // libera barramento para SD
+  File root = SD.open("/");
+  uint32_t best = 0;
+
+  if (root) {
+    File entry = root.openNextFile();
+    while (entry) {
+      if (!entry.isDirectory()) {
+        char nm[32] = {0};
+        entry.getName(nm, sizeof(nm));
+        // Formato esperado: 'L' + 6 dígitos + ".CSV" => tamanho 11
+        // Ex.: "L202509.CSV"
+        size_t len = strlen(nm);
+        if (len == 11 && nm[0] == 'L' &&
+            nm[7] == '.' && nm[8] == 'C' && nm[9] == 'S' && nm[10] == 'V') {
+          // Captura os 6 dígitos
+          bool ok = true;
+          for (int i = 1; i <= 6; i++) if (nm[i] < '0' || nm[i] > '9') ok = false;
+          if (ok) {
+            char buf[7]; memcpy(buf, nm + 1, 6); buf[6] = '\0';
+            uint32_t val = (uint32_t)atoi(buf);
+            if (val > best) best = val;
+          }
+        }
+      }
+      entry.close();
+      entry = root.openNextFile();
+    }
+    root.close();
+  }
+
+  digitalWrite(PIN_CS_SD, HIGH);   // solta SD
+  return best;
 }
