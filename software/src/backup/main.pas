@@ -6,51 +6,71 @@ interface
 
 uses
   Classes, SysUtils, Forms, Controls, Graphics, Dialogs, StdCtrls, Buttons,
-  ExtCtrls, Menus, PopupNotifier, LazSerial, FileUtil, LazFileUtils, LazSynaSer,
-  synaser, IdHTTPServer, lNetComponents, LedNumber, setmain, registro, peso,
-  setup, lNet, log, IdCustomHTTPServer,  IdCompressionIntercept,
-  IdSSLOpenSSL, IdSchedulerOfThreadDefault,IdContext;
+  ExtCtrls, Menus, PopupNotifier, ComCtrls, LazSerial, FileUtil, LazFileUtils,
+  LazSynaSer, Plotpanel, synaser, IdHTTPServer, lNetComponents, LedNumber,
+  setmain, registro, peso, setup, lNet, log, IdCustomHTTPServer,
+  IdCompressionIntercept, IdSSLOpenSSL, IdSchedulerOfThreadDefault, IdContext,
+  // === novos para cliente HTTP, JSON e desenho ===
+  IdHTTP, fpjson, jsonparser, Math, LCLType;
 
 Const
-    Version : string =  '0.02';
-    PortTemp = 8098;
-    ServerName :string = 'localhost';
-
+  Version    : string = '0.03';
+  PortTemp   = 8098;
+  ServerName : string = 'localhost';
 
 type
 
   { Tfrmmain }
 
-
   Tfrmmain = class(TForm)
-    btDesconectar1: TButton;
-    Button1: TButton;
     btConectar: TButton;
+    btDesconectar1: TButton;
+    btsair: TToggleBox;
     btSetup: TButton;
+    Button1: TButton;
+    Button2: TButton;
+    edIP: TEdit;
     IdHTTPServer1: TIdHTTPServer;
+    IdHTTPServer2: TIdHTTPServer;
     IdSchedulerOfThreadDefault1: TIdSchedulerOfThreadDefault;
     IdServerCompressionIntercept1: TIdServerCompressionIntercept;
     IdServerIOHandlerSSLOpenSSL1: TIdServerIOHandlerSSLOpenSSL;
+    Label1: TLabel;
+    Label2: TLabel;
+    lbSensoriamento: TLabel;
     lbVersao: TLabel;
     lbstatus: TLabel;
     LazSerial1: TLazSerial;
+    lbIPS: TListBox;
     LTCPComponent1: TLTCPComponent;
     MenuItem1: TMenuItem;
     MenuItem2: TMenuItem;
     MenuItem3: TMenuItem;
     btlog: TMenuItem;
+    PageControl1: TPageControl;
+    Panel1: TPanel;
+    PlotPanel1: TPlotPanel;
+    PlotPanel2: TPlotPanel;
     popTray: TPopupMenu;
     PopupNotifier1: TPopupNotifier;
+    TabSheet1: TTabSheet;
+    TabSheet2: TTabSheet;
+    TabSheet3: TTabSheet;
+    tsMonitorarHum: TTabSheet;
+    Timer2: TTimer;
+    tsMonitorarTemp: TTabSheet;
     Timer1: TTimer;
-    btsair: TToggleBox;
+    btMonitorar: TToggleBox;
     TrayIcon1: TTrayIcon;
     procedure btConectarClick(Sender: TObject);
     procedure btDesconectar1Click(Sender: TObject);
     procedure btlogClick(Sender: TObject);
+    procedure btMonitorarChange(Sender: TObject);
     procedure btsairChange(Sender: TObject);
     procedure btSetupClick(Sender: TObject);
     procedure btTestaClick(Sender: TObject);
     procedure Button1Click(Sender: TObject);
+    procedure Button2Click(Sender: TObject);
     procedure FormCloseQuery(Sender: TObject; var CanClose: boolean);
     procedure FormCreate(Sender: TObject);
     procedure FormDestroy(Sender: TObject);
@@ -72,16 +92,31 @@ type
     procedure Timer1StartTimer(Sender: TObject);
     procedure Timer1StopTimer(Sender: TObject);
     procedure Timer1Timer(Sender: TObject);
+    procedure Timer2Timer(Sender: TObject);
   private
     Lbuffer: String;
+
+    // ===== novos campos =====
+    FHttp  : TIdHTTP;       // cliente HTTP para GET nos IPs
+    FTemps : TStringList;   // temperaturas por índice (alinhado com lbIPS)
+    FHums  : TStringList;   // umidades por índice
+
     procedure ListDev();
     function PegaSerial() : String;
     procedure SalvarContexto();
     procedure Setup();
     procedure getPage(aSocket : TLSocket; PeerAddress : string; mensagem: string);
     procedure RespostaHTMLCabecalho(aSocket: TLSocket);
-  public
 
+    procedure SalvarLista();     // grava lbIPS.Items em %AppData%/… (ou ~/.config)
+    procedure CarregarLista();   // restaura lista salvo no início
+
+    // ===== helpers novos =====
+    procedure EnsureListsSize;
+    function BuildURL(const Item: string): string;
+    function FetchTempHum(const AUrl: string; out ATemp, AHum: Double): Boolean;
+    procedure DrawBars(const Panel: TPlotPanel; const Values, Labels: TStrings; const Title, UnitText: string);
+  public
   end;
 
 var
@@ -91,32 +126,58 @@ implementation
 
 {$R *.lfm}
 
+const
+  LIST_FILENAME = 'srvtemp_ips.lst';
+
 { Tfrmmain }
 
 procedure Tfrmmain.FormCreate(Sender: TObject);
 begin
-  Lbuffer:= '';
-  frmlog := TfrmLog.create(self);
-  frmsetup := Tfrmsetup.create(self);
-  Fsetmain := TSetmain.create();
-  self.left := Fsetmain.posx;
-  self.top := fsetmain.posy;
-  frmSetup.edSerialPort.text := FSETMAIN.COMPORT;
-  frmRegistrar := TfrmRegistrar.Create(self);
+  Lbuffer := '';
+
+  frmlog      := TfrmLog.Create(Self);
+  frmsetup    := Tfrmsetup.Create(Self);
+  Fsetmain    := TSetmain.Create();
+  Self.Left   := Fsetmain.posx;
+  Self.Top    := Fsetmain.posy;
+
+  frmSetup.edSerialPort.Text := FSETMAIN.COMPORT;
+
+  frmRegistrar := TfrmRegistrar.Create(Self);
   frmRegistrar.Identifica();
-  frmpeso := TFrmpeso.create(self);
-  frmpeso.show();
+
+  // cria, mas não mostra a tela de peso ao iniciar
+  frmpeso := TFrmpeso.Create(Self);
+
   ListDev();
-  lbVersao.Caption:= Version;
+  CarregarLista(); // restaura a lista de IPs
+
+  lbVersao.Caption := Version;
+
+  // cliente HTTP + armazenamento
+  FHttp := TIdHTTP.Create(Self);
+  FHttp.ConnectTimeout := 1500;
+  FHttp.ReadTimeout    := 2000;
+  FHttp.Request.UserAgent := 'srvtemp-monitor/0.1';
+
+  FTemps := TStringList.Create;
+  FHums  := TStringList.Create;
+
+  // Timer2 começa desligado; ative pelo toggle
+  Timer2.Enabled := False;
 end;
 
 procedure Tfrmmain.FormDestroy(Sender: TObject);
 begin
   SalvarContexto();
-  Fsetmain.free();
-  frmlog.free;
-  frmRegistrar.free;
-  frmSetup.free;
+  Fsetmain.Free();
+  frmlog.Free;
+  frmRegistrar.Free;
+  frmSetup.Free;
+
+  FreeAndNil(FHttp);
+  FreeAndNil(FTemps);
+  FreeAndNil(FHums);
 end;
 
 procedure Tfrmmain.IdHTTPServer1CommandGet(AContext: TIdContext;
@@ -124,38 +185,24 @@ procedure Tfrmmain.IdHTTPServer1CommandGet(AContext: TIdContext;
 var
   buffer: ansistring;
 begin
- //  buffer :='HTTP/1.1 200 OK '+#10;
- //buffer := buffer +'Content-Type: text/html'+#10;
- //buffer := buffer + '<!DOCTYPE HTML>'+#10;
- buffer :=  '<html>'+#10;
- buffer := buffer + '<head>'+#10;
- buffer := buffer + '<title>Meu SRV</title>'+#10;
- buffer := buffer + '</head>'+#10;
- buffer := buffer + '<body>'+#10;
- buffer := buffer + '{';
- buffer := buffer + '"rs":{';
- buffer := buffer + '"Temperatura":' ;
- buffer := buffer + '"'+frmpeso.lbTemperatura.Caption+'"';
- buffer := buffer + '}';
- buffer := buffer + '}'+#10;
- buffer := buffer + '</body>'+#10;
- buffer := buffer + '</html>'+#10;
- AResponseInfo.ContentText := buffer;
+  // responde JSON simples com a temperatura exibida na tela de "peso"
+  AResponseInfo.ContentType := 'application/json; charset=utf-8';
+  buffer := '{'                           + LineEnding +
+            '  "rs": {'                   + LineEnding +
+            '    "Temperatura": ' +
+            '"' + frmpeso.lbTemperatura.Caption + '"' + LineEnding +
+            '  }'                         + LineEnding +
+            '}'                           + LineEnding;
+  AResponseInfo.ContentText := buffer;
 end;
 
 procedure Tfrmmain.LazSerial1BlockSerialStatus(Sender: TObject;
   Reason: THookSerialReason; const Value: string);
 begin
-  if(LazSerial1.Active) then
-  begin
-    //Shape1.Color:= clRed;
-    lbstatus.Caption:= 'Open';
-  end
+  if (LazSerial1.Active) then
+    lbstatus.Caption := 'Open'
   else
-  begin
-    //Shape1.Color:= clwhite;
-    lbstatus.Caption:= 'close';
-  end;
+    lbstatus.Caption := 'Close';
   Application.ProcessMessages();
 end;
 
@@ -171,14 +218,10 @@ var
   var
     i: Integer;
   begin
-    // Procura primeiro CR ou LF
     i := Pos(#13, S);
     if i = 0 then i := Pos(#10, S);
-    if i = 0 then
-      Exit(''); // ainda não há linha completa
-
+    if i = 0 then Exit('');
     Result := Copy(S, 1, i - 1);
-    // Remove CR/LF (cobre \r, \n, \r\n)
     Delete(S, 1, i);
     while (Length(S) > 0) and ((S[1] = #10) or (S[1] = #13)) do
       Delete(S, 1, 1);
@@ -200,20 +243,15 @@ var
     T: string;
   begin
     T := Trim(S);
-    // Remove espaços
     T := StringReplace(T, ' ', '', [rfReplaceAll]);
-    // Troca vírgula decimal por ponto (para BR)
-    // (Não mexe na vírgula separadora porque já separamos antes)
     T := StringReplace(T, ',', '.', [rfReplaceAll]);
     Result := T;
   end;
 
 begin
-  // Configura ponto como separador decimal para TryStrToFloat
   fs := DefaultFormatSettings;
   fs.DecimalSeparator := '.';
 
-  // 1) Ler e acumular no buffer
   if LazSerial1.DataAvailable then
   begin
     info := LazSerial1.ReadData();
@@ -221,130 +259,90 @@ begin
       Lbuffer := Lbuffer + info;
   end;
 
-  // 2) Processar todas as linhas completas que já estiverem no buffer
   while True do
   begin
     line := PopLineFromBuffer(Lbuffer);
-    if line = '' then
-      Break; // sem linha completa, aguarda próxima chegada
+    if line = '' then Break;
 
     line := Trim(line);
-    if line = '' then
-      Continue;
+    if line = '' then Continue;
 
-    // 3) Remove o prefixo "->" se houver
     line := TrimPrefixArrow(line);
-    // Agora esperamos algo como: "28.00C, 53.00%" (ou "28,00C, 53,00%")
 
-    // 4) Separa em duas partes pelo primeiro separador de vírgula
     p := Pos(',', line);
     if p > 0 then
     begin
-      leftPart  := Trim(Copy(line, 1, p - 1));       // "28.00C"
-      rightPart := Trim(Copy(line, p + 1, MaxInt));  // "53.00%"
+      leftPart  := Trim(Copy(line, 1, p - 1));
+      rightPart := Trim(Copy(line, p + 1, MaxInt));
 
-      // 4.1) Extrai temperatura: até o 'C'
       pC := Pos('C', leftPart);
       if pC > 1 then
         tempStr := Trim(Copy(leftPart, 1, pC - 1))
       else
-        tempStr := Trim(leftPart); // fallback se vier sem 'C'
+        tempStr := Trim(leftPart);
 
-      // 4.2) Extrai umidade: até o '%'
       pPct := Pos('%', rightPart);
       if pPct > 1 then
         humStr := Trim(Copy(rightPart, 1, pPct - 1))
       else
-        humStr := Trim(rightPart); // fallback se vier sem '%'
+        humStr := Trim(rightPart);
 
-      // 5) Normaliza números (vírgula -> ponto, remove espaços)
       tempStr := NormalizeNumber(tempStr);
       humStr  := NormalizeNumber(humStr);
 
-      // 6) Converte e usa (se falhar conversão, ainda assim envia string limpa)
-      if not TryStrToFloat(tempStr, tempVal, fs) then
-        tempVal := NaN;
-      if not TryStrToFloat(humStr, humVal, fs) then
-        humVal := NaN;
+      if not TryStrToFloat(tempStr, tempVal, fs) then tempVal := 0;
+      if not TryStrToFloat(humStr, humVal, fs) then humVal := 0;
 
-      // 7) Entrega para a UI (ajuste para o que você já usa)
-      //   Se seus métodos aceitarem string (como no seu exemplo original):
       if Assigned(frmpeso) then
       begin
-        frmpeso.Temperatura(FormatFloat('0.00', tempVal)); // ou simplesmente tempStr
-        frmpeso.Umidade(FormatFloat('0.00', humVal));      // crie este método caso não exista
+        frmpeso.Temperatura(FormatFloat('0.00', tempVal));
+        frmpeso.Umidade(FormatFloat('0.00', humVal));
       end;
 
       Application.ProcessMessages;
-    end
-    else
-    begin
-      // Linha sem vírgula — não está no formato esperado, ignore ou logue:
-      // ShowMessage('Linha inválida: ' + line);
     end;
   end;
 end;
 
-
 procedure Tfrmmain.LazSerial1Status(Sender: TObject; Reason: THookSerialReason;
   const Value: string);
 begin
-
 end;
 
 procedure Tfrmmain.LTCPComponent1Connect(aSocket: TLSocket);
 begin
   aSocket.SendMessage('Connected!');
-  //frmLog.Log('Connected:'+aSocket.PeerAddress);
 end;
 
 procedure Tfrmmain.LTCPComponent1Receive(aSocket: TLSocket);
 var
   mensagem : string;
-  strnro : string;
-  posicao : integer;
 begin
-  //Mensagem recebida padrao Fila:nro+#13
   aSocket.GetMessage(mensagem);
-  //PopupNotifier1.Text:=mensagem;
-  //PopupNotifier1.Show;
-  //frmlog.Log('Receive:'+aSocket.PeerAddress+',msg:'+mensagem);
-  //if (mensagem <> '') then
-  //if (pos(mensagem,'GET / HTTP/1.1')<>-1) then
-  begin
-     frmlog.Log('rec:'+mensagem);
-     (*
-      if (POS(mensagem, 'PESO:')>=0) then
-      begin
-        aSocket.SendMessage('PESO:'+ frmPeso.lbPeso.Caption +#13);  //Vou implementar aqui
-        aSocket.Disconnect(true);
-      end;
-      *)
-     getPage(aSocket, aSocket.PeerAddress, mensagem);
-  end;
-  //aSocket.Disconnect(true);
+  frmlog.Log('rec:'+mensagem);
+  getPage(aSocket, aSocket.PeerAddress, mensagem);
   LTCPComponent1.CallAction();
 end;
 
 procedure Tfrmmain.MenuItem1Click(Sender: TObject);
 begin
-  show();
+  Show();
 end;
 
 procedure Tfrmmain.MenuItem2Click(Sender: TObject);
 begin
-       Setup();
+  Setup();
 end;
 
 procedure Tfrmmain.MenuItem3Click(Sender: TObject);
 begin
-  frmPeso.show();
+  // abre a tela de temperatura/umidade quando o usuário quiser
+  frmPeso.Show();
 end;
 
 procedure Tfrmmain.SdpoSerial1BlockSerialStatus(Sender: TObject;
   Reason: THookSerialReason; const Value: string);
 begin
-
 end;
 
 procedure Tfrmmain.SdpoSerial1RxData(Sender: TObject);
@@ -353,89 +351,138 @@ end;
 
 procedure Tfrmmain.Timer1StartTimer(Sender: TObject);
 begin
-  lbstatus.Caption:= 'Lendo...';
+  lbstatus.Caption := 'Lendo...';
 end;
 
 procedure Tfrmmain.Timer1StopTimer(Sender: TObject);
 begin
- lbstatus.Caption:= 'Não Lendo';
+  lbstatus.Caption := 'Não Lendo';
 end;
 
 procedure Tfrmmain.Timer1Timer(Sender: TObject);
 begin
-  //LazSerial1.WriteData(#05);
   Application.ProcessMessages();
+end;
+
+procedure Tfrmmain.Timer2Timer(Sender: TObject);
+var
+  i: Integer;
+  url: string;
+  t, h: Double;
+begin
+  // coleta periódica controlada pelo Timer2
+  EnsureListsSize;
+
+  for i := 0 to lbIPS.Items.Count - 1 do
+  begin
+    url := BuildURL(lbIPS.Items[i]);
+    if FetchTempHum(url, t, h) then
+    begin
+      FTemps[i] := FormatFloat('0.00', t);
+      FHums[i]  := FormatFloat('0.00', h);
+    end
+    else
+    begin
+      FTemps[i] := '';
+      FHums[i]  := '';
+    end;
+  end;
+
+  // redesenha os gráficos
+  DrawBars(PlotPanel1, FTemps, lbIPS.Items, 'Temperatura atual por IP', '°C');
+  DrawBars(PlotPanel2, FHums,  lbIPS.Items, 'Umidade atual por IP',     '%');
 end;
 
 procedure Tfrmmain.Button1Click(Sender: TObject);
 begin
-   //PegaSerial();
+  //PegaSerial();
+end;
+
+procedure Tfrmmain.Button2Click(Sender: TObject);
+var
+  v: string;
+begin
+  v := Trim(edIP.Text);
+  if v = '' then Exit;
+
+  // evita duplicados
+  if lbIPS.Items.IndexOf(v) < 0 then
+  begin
+    lbIPS.Items.Append(v);
+    lbIPS.Sorted := True;
+    SalvarLista();
+    edIP.Text:= '';
+
+    EnsureListsSize;
+  end;
 end;
 
 procedure Tfrmmain.FormCloseQuery(Sender: TObject; var CanClose: boolean);
 begin
-  //if QuestionDlg('Sair?','Deseja sair? ',);
-  canClose := false;
-  hide;
-  if(not TrayIcon1.Visible) then
-  begin
-     TrayIcon1.Visible:=true;
-  end;
+  CanClose := False;
+  Hide;
+  if not TrayIcon1.Visible then
+     TrayIcon1.Visible := True;
 end;
 
 procedure Tfrmmain.btConectarClick(Sender: TObject);
 begin
-
   try
-    LazSerial1.close;
-    LazSerial1.Device := FSETMAIN.COMPORT;
-    LazSerial1.BaudRate:= TBaudRate(FSETMAIN.BAUDRATE);
-    LazSerial1.DataBits:= TDataBits(FSETMAIN.DATABIT);
-    //LazSerial1.FlowControl:= TFlowControl(FSETMAIN.;
-    LazSerial1.Parity:= TParity(FSETMAIN.PARIDADE);
-    LazSerial1.StopBits:= TStopBits(FSETMAIN.STOPBIT);
-
+    LazSerial1.Close;
+    LazSerial1.Device    := FSETMAIN.COMPORT;
+    LazSerial1.BaudRate  := TBaudRate(FSETMAIN.BAUDRATE);
+    LazSerial1.DataBits  := TDataBits(FSETMAIN.DATABIT);
+    LazSerial1.Parity    := TParity(FSETMAIN.PARIDADE);
+    LazSerial1.StopBits  := TStopBits(FSETMAIN.STOPBIT);
     LazSerial1.Open;
     Application.ProcessMessages();
-
   finally
-    Timer1.Enabled:= not Timer1.Enabled;
-    TrayIcon1.Visible:=true;
-    TrayIcon1.Hint:='Connected';
-    //IdHTTPServer1.DefaultPort (PortTemp);
-    IdHTTPServer1.active := true;
-    hide;
+    Timer1.Enabled := not Timer1.Enabled;
+    TrayIcon1.Visible := True;
+    TrayIcon1.Hint := 'Connected';
+    IdHTTPServer1.Active := True; // porta configurada no objeto
+    Hide;
   end;
-
-
 end;
 
 procedure Tfrmmain.btDesconectar1Click(Sender: TObject);
 begin
-  //SdpoSerial1.close;
-  Timer1.Enabled:= false;
-  LazSerial1.close;
+  Timer1.Enabled := False;
+  LazSerial1.Close;
   Application.ProcessMessages();
 end;
 
 procedure Tfrmmain.btlogClick(Sender: TObject);
 begin
-  frmLog.show;
+  frmLog.Show;
+end;
+
+procedure Tfrmmain.btMonitorarChange(Sender: TObject);
+begin
+  Timer2.Enabled := btMonitorar.Checked;
+  if Timer2.Enabled then
+    Timer2Timer(nil)  // força primeira coleta imediata
+  else
+  begin
+    // limpa gráficos quando parar (opcional)
+    FTemps.Clear; FHums.Clear;
+    DrawBars(PlotPanel1, FTemps, lbIPS.Items, 'Temperatura atual por IP', '°C');
+    DrawBars(PlotPanel2, FHums,  lbIPS.Items, 'Umidade atual por IP',     '%');
+  end;
 end;
 
 procedure Tfrmmain.btsairChange(Sender: TObject);
 begin
-     Application.Terminate;
+  Application.Terminate;
 end;
 
 procedure Tfrmmain.btSetupClick(Sender: TObject);
 begin
-     Setup();
+  Setup();
 end;
 
 procedure Tfrmmain.btTestaClick(Sender: TObject);
 begin
-
 end;
 
 procedure Tfrmmain.ListDev();
@@ -447,106 +494,260 @@ function Tfrmmain.PegaSerial(): String;
 var
   ListOfFiles: TStringList;
   Directory : string;
-  posicao : integer;
 begin
-
-
-  ListOfFiles := TStringList.create();
-  {$IFDEF LINUX}
-  Directory := '/dev';
-  FindAllFiles ( ListOfFiles , Directory ,  '*' ,  false ) ;
-  posicao := 0;
-  //ListOfFiles.Find('ttyS',posicao);
-  //ListOfFiles.Sorted := true;
-  cbserial.items.Clear;
-  cbserial.Items.text:= ListOfFiles.Text;
-  {$ENDIF}
+  Result := '';
+  ListOfFiles := TStringList.Create();
+  try
+    {$IFDEF LINUX}
+    Directory := '/dev';
+    FindAllFiles(ListOfFiles, Directory, '*', False);
+    {$ENDIF}
+  finally
+    ListOfFiles.Free;
+  end;
 end;
 
 procedure Tfrmmain.SalvarContexto();
 begin
-  (*
-  FSETMAIN.empresa := edEmpresa.text;
-  FSETMAIN.Localizacao :=  edlocalizacao.text;
-  FSETMAIN.Tipo1 :=  edTipo1.text;
-  FSETMAIN.Tipo2 := edTipo2.text;
-  FSETMAIN.Tipo3 := edTipo3.text;
-  FSETMAIN.Contagem1 :=  strtoint(edCont1.text);
-  FSETMAIN.Contagem2 := strtoint(edCont2.text);
-  FSETMAIN.Contagem3 := strtoint( edCont3.text);
-  *)
-  FSETMAIN.posx := self.left;
-  FSetMain.posy := self.top;
-  (*
-  FSetmain.painel:= edPainel.text;
-  Fsetmain.tipoimp := cbTipoImp.ItemIndex;
-  Fsetmain.modeloimp := cbModeImp.ItemIndex;
-  *)
-  //FSetmain.COMPORT := cbserial.text;
-  (*
-  Fsetmain.EXEC:= cbIniciar.Checked;
-  *)
+  FSETMAIN.posx := Self.Left;
+  FSetMain.posy := Self.Top;
   FSETMAIN.SalvaContexto();
-
 end;
 
 procedure Tfrmmain.Setup();
 begin
-  frmSetup.edSerialPort.text := FSETMAIN.COMPORT;
+  frmSetup.edSerialPort.Text   := FSETMAIN.COMPORT;
   frmSetup.cbBaudrate.ItemIndex:= FSETMAIN.BAUDRATE;
   frmSetup.cbDatabits.ItemIndex:= FSETMAIN.DATABIT;
-  frmSetup.rgParity.ItemIndex:= FSETMAIN.PARIDADE;
-  //frmSetup.rgFlowControl.ItemIndex:=FSETMAIN.;
+  frmSetup.rgParity.ItemIndex  := FSETMAIN.PARIDADE;
   frmSetup.rgStopbit.ItemIndex := FSETMAIN.STOPBIT;
-  frmSetup.show();
+  frmSetup.Show();
 end;
 
 procedure Tfrmmain.RespostaHTMLCabecalho(aSocket: TLSocket);
 var
   buffer : string;
 begin
-
- buffer :='HTTP/1.1 200 OK '+#10;
- buffer := buffer +'Content-Type: text/html'+#10;
- buffer := buffer + '<!DOCTYPE HTML>'+#10;
- buffer := buffer + '<html>'+#10;
- buffer := buffer + '<head>'+#10;
- buffer := buffer + '<title>Meu SRV</title>'+#10;
- buffer := buffer + '</head>'+#10;
- buffer := buffer + '<body>'+#10;
- buffer := buffer + 'hello'+#10;
- buffer := buffer + '</body>'+#10;
- buffer := buffer + '</html>'+#10;
-
- //aSocket.SendMessage('Connection: close'+#10+#13);
- //aSocket.Send(UTF8Char(buffer),length(buffer));
-
+  buffer :='HTTP/1.1 200 OK '+#10;
+  buffer := buffer +'Content-Type: text/html'+#10;
+  buffer := buffer + '<!DOCTYPE HTML>'+#10;
+  buffer := buffer + '<html>'+#10;
+  buffer := buffer + '<head>'+#10;
+  buffer := buffer + '<title>Meu SRV</title>'+#10;
+  buffer := buffer + '</head>'+#10;
+  buffer := buffer + '<body>'+#10;
+  buffer := buffer + 'hello'+#10;
+  buffer := buffer + '</body>'+#10;
+  buffer := buffer + '</html>'+#10;
 end;
 
 procedure Tfrmmain.getPage(aSocket: TLSocket; PeerAddress: string;
   mensagem: string);
-var
-  buffer : WIDEstring;
 begin
-
   RespostaHTMLCabecalho(aSocket);
-  //aSocket.SendMessage('Host:'+ServerName+' '+#10+#13);
-  //buffer := buffer + 'Refresh: 5';
-  //buffer := buffer + #13#10;
-  (*
-  aSocket.SendMessage('<!DOCTYPE HTML>'+#10+#13);
-  aSocket.SendMessage('<html>'+#10+#13);
-  aSocket.SendMessage('<head>'+#10+#13);
-  aSocket.SendMessage('</head>'+#10+#13);
-  aSocket.SendMessage('<body>'+#10+#13);
-  aSocket.SendMessage('hello '+#10+#13);
-  aSocket.SendMessage('</body>'+#10+#13);
-  aSocket.SendMessage('</html>'+#10+#13);
-  //aSocket.Send(buffer,sizeof(buffer));
-  frmLog.Log('ENV:'+buffer);
-  //aSocket.SendMessage(buffer);
-  //LTCPComponent1.CallAction();
-  *)
+end;
+
+{ ===== Persistência da lista (igual ao setmain, na pasta do app) ===== }
+
+procedure Tfrmmain.SalvarLista();
+var
+  path, fn: String;
+  SL: TStringList;
+begin
+  path := GetAppConfigDir(False);
+  if not DirectoryExists(path) then
+    CreateDir(path);
+
+  fn := IncludeTrailingPathDelimiter(path) + LIST_FILENAME;
+
+  SL := TStringList.Create;
+  try
+    SL.Assign(lbIPS.Items);
+    SL.Text := Trim(SL.Text);
+    SL.Sorted := True;
+    SL.Duplicates := dupIgnore;
+    SL.SaveToFile(fn);
+  finally
+    SL.Free;
+  end;
+end;
+
+procedure Tfrmmain.CarregarLista();
+var
+  path, fn: String;
+begin
+  path := GetAppConfigDir(False);
+  fn   := IncludeTrailingPathDelimiter(path) + LIST_FILENAME;
+  if FileExists(fn) then
+  begin
+    lbIPS.Items.LoadFromFile(fn);
+    lbIPS.Sorted := True;
+  end;
+end;
+
+{ ======= helpers novos ======= }
+
+procedure Tfrmmain.EnsureListsSize;
+var
+  n, i: Integer;
+begin
+  n := lbIPS.Items.Count;
+
+  while FTemps.Count < n do FTemps.Add('');
+  while FHums.Count  < n do FHums.Add('');
+
+  while FTemps.Count > n do FTemps.Delete(FTemps.Count-1);
+  while FHums.Count  > n do FHums.Delete(FHums.Count-1);
+
+  // garante strings válidas
+  for i := 0 to n-1 do
+  begin
+    if FTemps[i] = '' then FTemps[i] := '';
+    if FHums[i]  = '' then FHums[i]  := '';
+  end;
+end;
+
+function Tfrmmain.BuildURL(const Item: string): string;
+begin
+  // Se o usuário digitou só o IP, adiciona http:// e caminho padrão
+  if Pos('http', LowerCase(Item)) <> 1 then
+    Result := 'http://' + Item + '/ws/temperatura'
+  else
+    Result := IncludeTrailingPathDelimiter(Item) + 'ws/temperatura';
+end;
+
+
+function Tfrmmain.FetchTempHum(const AUrl: string; out ATemp, AHum: Double): Boolean;
+var
+  S: string;
+  J: TJSONData;
+begin
+  Result := False;
+  ATemp := NaN;
+  AHum  := NaN;
+
+  try
+    // aumenta timeouts antes da chamada
+    FHttp.ConnectTimeout := 5000; // 5 segundos
+    FHttp.ReadTimeout    := 6000; // 6 segundos
+    S := FHttp.Get(AUrl);
+  except
+    Exit(False);
+  end;
+
+  try
+    J := GetJSON(S);
+    try
+      // espera:
+      // { "temperature": 28.1, "humidity": 64.7, "unit_temp":"C", "unit_humidity":"%RH" }
+      if (J.JSONType = jtObject) then
+      begin
+        if (J.FindPath('temperature') <> nil) then
+          ATemp := J.FindPath('temperature').AsFloat;
+        if (J.FindPath('humidity') <> nil) then
+          AHum := J.FindPath('humidity').AsFloat;
+        Result := (not IsNan(ATemp)) or (not IsNan(AHum));
+      end;
+    finally
+      J.Free;
+    end;
+  except
+    Result := False;
+  end;
+end;
+
+procedure Tfrmmain.DrawBars(const Panel: TPlotPanel; const Values, Labels: TStrings; const Title, UnitText: string);
+var
+  C: TCanvas;
+  W, H, i, n: Integer;
+  margin, barW, x0, y0, x, y: Integer;
+  maxVal, v: Double;
+  lbl: string;
+begin
+  C := Panel.Canvas;
+  W := Panel.ClientWidth;
+  H := Panel.ClientHeight;
+
+  C.Brush.Color := clWhite;
+  C.FillRect(0,0,W,H);
+
+  C.Pen.Color := clGray;
+  C.Rectangle(0,0,W-1,H-1);
+
+  n := Labels.Count;
+  if n = 0 then
+  begin
+    C.Font.Color := clGrayText;
+    C.TextOut(8,8,'Sem itens para monitorar.');
+    Exit;
+  end;
+
+  // pega maior valor (escala)
+  maxVal := 0;
+  for i := 0 to n-1 do
+    if (i < Values.Count) and TryStrToFloat(Values[i], v) then
+      if v > maxVal then maxVal := v;
+
+  if maxVal <= 0 then maxVal := 1;
+
+  margin := 32;
+  x0 := margin;
+  y0 := H - margin;
+
+  // eixos
+  C.Pen.Color := clBlack;
+  C.MoveTo(x0, y0);
+  C.LineTo(W - margin div 2, y0);     // X
+  C.MoveTo(x0, y0);
+  C.LineTo(x0, margin div 2);         // Y
+
+  // barras
+  barW := Max(10, (W - 2*margin) div Max(1, 2*n));
+  x := x0 + 10;
+
+  C.Brush.Color := RGBToColor(80, 160, 255);
+  C.Pen.Color := clNavy;
+
+  for i := 0 to n-1 do
+  begin
+    v := 0;
+    if (i < Values.Count) and TryStrToFloat(Values[i], v) then
+    begin
+      y := y0 - Round((H - 2*margin) * (v / maxVal));
+      C.Rectangle(x, y, x + barW, y0);
+
+      // label valor
+      lbl := FormatFloat('0.0', v) + ' ' + UnitText;
+      C.Font.Color := clBlack;
+      C.TextOut(x, y - 14, lbl);
+    end
+    else
+    begin
+      C.Pen.Color := clSilver;
+      C.Brush.Style := bsClear;
+      C.Rectangle(x, y0-2, x + barW, y0);
+      C.Brush.Style := bsSolid;
+      C.Pen.Color := clNavy;
+    end;
+
+    // rótulo abaixo (encurta se for URL)
+    C.Font.Color := clGray;
+    lbl := Labels[i];
+    if Pos('http', LowerCase(lbl)) = 1 then
+    begin
+      if Length(lbl) > 20 then
+        lbl := Copy(lbl, 1, 20) + '…'
+      else
+        lbl := Copy(lbl, 1, 20);
+    end;
+    C.TextOut(x, y0 + 4, lbl);
+
+    x := x + barW + barW;
+  end;
+
+  // título
+  C.Font.Color := clBlack;
+  C.TextOut(margin, 6, Title);
 end;
 
 end.

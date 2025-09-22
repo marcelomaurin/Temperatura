@@ -27,28 +27,31 @@
     <RunParams>
       <FormatVersion Value="2"/>
     </RunParams>
-    <RequiredPackages Count="7">
+    <RequiredPackages Count="8">
       <Item1>
-        <PackageName Value="industrial"/>
+        <PackageName Value="plot"/>
       </Item1>
       <Item2>
-        <PackageName Value="indylaz"/>
+        <PackageName Value="industrial"/>
       </Item2>
       <Item3>
-        <PackageName Value="lnetvisual"/>
+        <PackageName Value="indylaz"/>
       </Item3>
       <Item4>
-        <PackageName Value="lnetbase"/>
+        <PackageName Value="lnetvisual"/>
       </Item4>
       <Item5>
-        <PackageName Value="laz_synapse"/>
+        <PackageName Value="lnetbase"/>
       </Item5>
       <Item6>
-        <PackageName Value="LazSerialPort"/>
+        <PackageName Value="laz_synapse"/>
       </Item6>
       <Item7>
-        <PackageName Value="LCL"/>
+        <PackageName Value="LazSerialPort"/>
       </Item7>
+      <Item8>
+        <PackageName Value="LCL"/>
+      </Item8>
     </RequiredPackages>
     <Units Count="8">
       <Unit0>
