@@ -608,13 +608,27 @@ begin
 end;
 
 function Tfrmmain.BuildURL(const Item: string): string;
+var
+  host: string;
 begin
-  // Se o usuário digitou só o IP, adiciona http:// e caminho padrão
-  if Pos('http', LowerCase(Item)) <> 1 then
-    Result := 'http://' + Item + '/ws/temperatura'
+  host := Item;
+  // Se o usuário digitou só IP ou IP:porta, normaliza
+  if Pos('http', LowerCase(host)) <> 1 then
+  begin
+    // garante porta 8081 se não foi informada
+    if Pos(':', host) = 0 then
+      host := host + ':8081';
+    Result := 'http://' + host + '/ws/temperatura';
+  end
   else
-    Result := IncludeTrailingPathDelimiter(Item) + 'ws/temperatura';
+  begin
+    // se já vier com http:// assume que o caminho está correto
+    Result := host;
+    if not Result.EndsWith('/ws/temperatura') then
+      Result := IncludeTrailingPathDelimiter(Result) + 'ws/temperatura';
+  end;
 end;
+
 
 
 function Tfrmmain.FetchTempHum(const AUrl: string; out ATemp, AHum: Double): Boolean;
@@ -626,11 +640,11 @@ begin
   ATemp := NaN;
   AHum  := NaN;
 
+  FHttp.ConnectTimeout := 5000; // 5s
+  FHttp.ReadTimeout    := 6000; // 6s
+
   try
-    // aumenta timeouts antes da chamada
-    FHttp.ConnectTimeout := 5000; // 5 segundos
-    FHttp.ReadTimeout    := 6000; // 6 segundos
-    S := FHttp.Get(AUrl);
+    S := FHttp.Get(AUrl);  // aqui AUrl já vem com :8081
   except
     Exit(False);
   end;
@@ -638,13 +652,11 @@ begin
   try
     J := GetJSON(S);
     try
-      // espera:
-      // { "temperature": 28.1, "humidity": 64.7, "unit_temp":"C", "unit_humidity":"%RH" }
       if (J.JSONType = jtObject) then
       begin
-        if (J.FindPath('temperature') <> nil) then
+        if J.FindPath('temperature') <> nil then
           ATemp := J.FindPath('temperature').AsFloat;
-        if (J.FindPath('humidity') <> nil) then
+        if J.FindPath('humidity') <> nil then
           AHum := J.FindPath('humidity').AsFloat;
         Result := (not IsNan(ATemp)) or (not IsNan(AHum));
       end;
@@ -655,6 +667,7 @@ begin
     Result := False;
   end;
 end;
+
 
 procedure Tfrmmain.DrawBars(const Panel: TPlotPanel; const Values, Labels: TStrings; const Title, UnitText: string);
 var

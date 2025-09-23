@@ -6,7 +6,7 @@ object frmSetup: TfrmSetup
   Caption = 'Setup'
   ClientHeight = 324
   ClientWidth = 330
-  LCLVersion = '2.0.12.0'
+  LCLVersion = '4.0.0.4'
   object Label12: TLabel
     Left = 7
     Height = 15
@@ -166,8 +166,8 @@ object frmSetup: TfrmSetup
     Top = 287
     Width = 75
     Caption = 'Salvar'
-    OnClick = Button1Click
     TabOrder = 6
+    OnClick = Button1Click
   end
   object btCancelar: TButton
     Left = 168
@@ -175,7 +175,7 @@ object frmSetup: TfrmSetup
     Top = 287
     Width = 75
     Caption = 'Cancelar'
-    OnClick = btCancelarClick
     TabOrder = 7
+    OnClick = btCancelarClick
   end
 end

@@ -10,7 +10,7 @@
         <IsPartOfProject Value="True"/>
         <EditorIndex Value="2"/>
         <CursorPos X="5" Y="5"/>
-        <UsageCount Value="27"/>
+        <UsageCount Value="33"/>
         <Loaded Value="True"/>
       </Unit0>
       <Unit1>
@@ -20,7 +20,7 @@
         <WindowIndex Value="-1"/>
         <TopLine Value="-1"/>
         <CursorPos X="-1" Y="-1"/>
-        <UsageCount Value="27"/>
+        <UsageCount Value="33"/>
       </Unit1>
       <Unit2>
         <Filename Value="log.pas"/>
@@ -30,7 +30,7 @@
         <WindowIndex Value="-1"/>
         <TopLine Value="-1"/>
         <CursorPos X="-1" Y="-1"/>
-        <UsageCount Value="27"/>
+        <UsageCount Value="33"/>
       </Unit2>
       <Unit3>
         <Filename Value="main.pas"/>
@@ -39,9 +39,9 @@
         <HasResources Value="True"/>
         <ResourceBaseClass Value="Form"/>
         <IsVisibleTab Value="True"/>
-        <TopLine Value="626"/>
-        <CursorPos Y="634"/>
-        <UsageCount Value="27"/>
+        <TopLine Value="608"/>
+        <CursorPos X="60" Y="638"/>
+        <UsageCount Value="33"/>
         <Loaded Value="True"/>
         <LoadedDesigner Value="True"/>
       </Unit3>
@@ -54,7 +54,7 @@
         <EditorIndex Value="3"/>
         <TopLine Value="40"/>
         <CursorPos Y="74"/>
-        <UsageCount Value="27"/>
+        <UsageCount Value="33"/>
         <Loaded Value="True"/>
         <LoadedDesigner Value="True"/>
       </Unit4>
@@ -67,7 +67,7 @@
         <EditorIndex Value="1"/>
         <TopLine Value="95"/>
         <CursorPos Y="115"/>
-        <UsageCount Value="27"/>
+        <UsageCount Value="33"/>
         <Loaded Value="True"/>
         <LoadedDesigner Value="True"/>
       </Unit5>
@@ -77,7 +77,7 @@
         <EditorIndex Value="5"/>
         <TopLine Value="378"/>
         <CursorPos Y="412"/>
-        <UsageCount Value="27"/>
+        <UsageCount Value="33"/>
         <Loaded Value="True"/>
       </Unit6>
       <Unit7>
@@ -89,7 +89,7 @@
         <UnitName Value="Setup"/>
         <EditorIndex Value="4"/>
         <CursorPos X="15" Y="17"/>
-        <UsageCount Value="27"/>
+        <UsageCount Value="33"/>
         <Loaded Value="True"/>
         <LoadedDesigner Value="True"/>
       </Unit7>
@@ -246,20 +246,6 @@
   </ProjectSession>
   <Debugging>
     <BreakPoints>
-      <Item>
-        <Kind Value="bpkSource"/>
-        <WatchScope Value="wpsLocal"/>
-        <WatchKind Value="wpkWrite"/>
-        <Source Value="main.pas"/>
-        <Line Value="1"/>
-      </Item>
-      <Item>
-        <Kind Value="bpkSource"/>
-        <WatchScope Value="wpsLocal"/>
-        <WatchKind Value="wpkWrite"/>
-        <Source Value="main.pas"/>
-        <Line Value="1"/>
-      </Item>
       <Item>
         <Kind Value="bpkSource"/>
         <WatchScope Value="wpsLocal"/>
