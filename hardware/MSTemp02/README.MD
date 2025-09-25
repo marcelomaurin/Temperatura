@@ -70,25 +70,25 @@ GET /ws/log?yyyymm=202509
 GET /ws/csv?yyyymm=202509
 GET /ws/clear?yyyymm=202509
 GET /ws/calib?kt=1&at=0&kh=1&ah=0
+```
 
+# 🏗️ Fluxo de Boot
 
-🏗️ Fluxo de Boot
+## Configura pinos e periféricos.
 
-Configura pinos e periféricos.
+- Lê EEPROM (ou aplica defaults).
 
-Lê EEPROM (ou aplica defaults).
+- Conecta rede (DHCP/estático).
 
-Conecta rede (DHCP/estático).
+- Sincroniza NTP.
 
-Sincroniza NTP.
+- Inicializa SD.
 
-Inicializa SD.
-
-Exibe IP no LCD.
+- Exibe IP no LCD.
 
 Loop principal: leitura DHT, gravação condicional, HTTP.
 
-🛠️ Compilação
+## 🛠️ Compilação
 
 IDE: Arduino IDE
 
@@ -96,12 +96,12 @@ Placa: Arduino Mega 2560
 
 Serial: 115200 baud
 
-🧪 Testes Rápidos
-# JSON atual
+## 🧪 Testes Rápidos
+### JSON atual
 curl http://<IP>:8081/ws/temperatura
 
-# Log mês 2025-09
+### Log mês 2025-09
 curl http://<IP>:8081/ws/log?yyyymm=202509
 
-# Exportar CSV
+### Exportar CSV
 curl -OJ http://<IP>:8081/ws/csv?yyyymm=202509
