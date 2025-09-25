@@ -105,3 +105,11 @@ curl http://<IP>:8081/ws/log?yyyymm=202509
 
 ### Exportar CSV
 curl -OJ http://<IP>:8081/ws/csv?yyyymm=202509
+
+
+## 📜 Licença
+
+Open Source - Livre uso e montagem, sem cobrança para este fim.
+Proibido a venda por terceiros sem autorização prévia. 
+Proibido a customização ou modificação.
+Proibido a incorporação.
