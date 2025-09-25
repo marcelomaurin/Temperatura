@@ -1,8 +1,13 @@
 # Leitura de Temperatura e Umidade com DHT22 + LCD I²C (Arduino)
 
-Projeto simples para ler temperatura e umidade usando um DHT22 e exibir os valores em um LCD 16x2 via I²C. Também envia os dados pela Serial (115200).
+Projeto simples para ler temperatura e umidade usando um DHT22 e exibir os valores em um LCD 16x2 via I²C. 
 
-Observação importante: o código usa a classe SimpleDHT22 (sensor DHT22). O comentário inicial do exemplo menciona DHT11, mas o hardware e a classe utilizados são DHT22.
+Também envia os dados pela Serial (115200).
+
+Este equipamento é criado para monitorar via USB/Serial.
+
+Observação importante: o código usa a classe SimpleDHT22 (sensor DHT22). 
+O hardware e a classe utilizados são DHT22.
 
 ## 🧩 Hardware
 
