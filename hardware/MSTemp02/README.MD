@@ -1,140 +1,107 @@
-# MSTemp02
-📘 Documentação – ESP8266 WiFi Setup + DHT11 + mDNS (srvTemp)
-📖 Visão Geral
+# 🌡️ Monitor de Temperatura & Umidade  
+**Plataforma:** Arduino Mega 2560 + Ethernet Shield + DHT22  
 
-Este projeto implementa uma solução completa para configuração de Wi-Fi e monitoramento de temperatura/umidade usando um ESP8266 (NodeMCU/Lolin/ESP-12E).
+Sistema embarcado para leitura de temperatura/umidade, interface web responsiva e registro em SD.
 
-Quando energizado, o dispositivo:
+---
 
-Tenta conectar ao último Wi-Fi salvo na EEPROM.
+## ✨ Funcionalidades
+- 📊 Leitura de temperatura/umidade (DHT22).
+- 🖥️ Exibição em LCD I²C 16×2.
+- 🌐 Servidor web na porta `8081` com Bootstrap.
+- 🗄️ Registro histórico em cartão SD (`LYYYYMM.CSV`).
+- ⏰ Sincronização NTP (UTC) a cada 10 min.
+- ⚙️ Configuração de rede persistente na EEPROM (DHCP ou estático).
+- 🔧 Calibração direta ou de 2 pontos (ganho + offset).
+- 🔔 Alarme sonoro ao cruzar 30 °C.
 
-Se não encontrar ou falhar, cria uma rede Wi-Fi AP chamada srvTemp.
+---
 
-Disponibiliza uma página web (estilo D-Link, responsiva com Bootstrap) para seleção de SSID, senha e visualização de sensores.
+## 🔌 Hardware
+- **Placa:** Arduino Mega 2560  
+- **Shield:** Ethernet (W5100/W5500) + SD no mesmo barramento SPI  
+- **Sensores:**
+  - DHT22 em D6
+  - LCD I²C (0x27)
+- **Outros:**
+  - Buzzer (A11) + enable (A8)
+  - LED status (D7)
 
-Salva as credenciais na EEPROM, tenta se conectar à rede escolhida e reinicia o servidor web.
+---
 
-Disponibiliza API REST para status, redes disponíveis e leitura de sensores.
+## 📚 Bibliotecas
+- `DHT.h`
+- `LiquidCrystal_I2C.h`
+- `Ethernet.h`, `EthernetUdp.h`
+- `Dns.h`, `SPI.h`
+- `EEPROM.h`
+- `SdFat.h` (v2+)
 
-Responde sempre com a página principal em qualquer rota chamada na porta 80 (catch-all).
+---
 
-🛠️ Hardware Necessário
+## 🌐 Rede e EEPROM
+- **DHCP** ou IP estático (`172.17.240.253` padrão).
+- Configurações persistentes em EEPROM:
+  - `use_static`, `ip`, `dns`, `gw`, `mask`, `mac`
+  - `kTemp`, `aTemp`, `kHum`, `aHum`
+- `magic` (0x42) e `checksum` para validar dados.
 
-Placa ESP8266 (NodeMCU/Lolin/ESP-12E).
+---
 
-Sensor DHT11 conectado ao GPIO4 (D2):
+## 🗂️ Registro no SD
+- Arquivos por mês: `LYYYYMM.CSV`
+- Cabeçalho: `epoch,temperature,humidity`
+- Só grava se ΔT ≥ 1 °C ou ΔH ≥ 1 %
 
-VCC → 3.3V
+---
 
-DATA → D2 (com resistor pull-up de 10k para 3.3V)
+## 🌍 Interface Web
+### Páginas
+- `/` – Status e configuração de rede
+- `/historico` – Gráficos (Chart.js)
+- `/export` – Download e limpeza de CSV
+- `/calibracao` – Ajuste de k/offset ou modo 2 pontos
 
-GND → GND
+### APIs
+```http
+GET /ws/temperatura      # JSON atual
+GET /ws/log?hours=24     # Últimas 24h
+GET /ws/log?yyyymm=202509
+GET /ws/csv?yyyymm=202509
+GET /ws/clear?yyyymm=202509
+GET /ws/calib?kt=1&at=0&kh=1&ah=0
 
-📦 Bibliotecas Utilizadas
 
-ESP8266WiFi
+🏗️ Fluxo de Boot
 
-ESP8266WebServer
+Configura pinos e periféricos.
 
-DNSServer
+Lê EEPROM (ou aplica defaults).
 
-EEPROM
+Conecta rede (DHCP/estático).
 
-DHT Sensor Library
+Sincroniza NTP.
 
-ESP8266mDNS
+Inicializa SD.
 
-🌐 Funcionalidades
-Portal Cativo
+Exibe IP no LCD.
 
-Cria rede srvTemp (AP).
+Loop principal: leitura DHT, gravação condicional, HTTP.
 
-Redireciona qualquer endereço para a página de configuração.
+🛠️ Compilação
 
-Responsivo com Bootstrap 5 e visual clean, similar a roteadores D-Link.
+IDE: Arduino IDE
 
-Configuração Wi-Fi
+Placa: Arduino Mega 2560
 
-Busca redes disponíveis (/scan).
+Serial: 115200 baud
 
-Permite salvar SSID e senha na EEPROM.
+🧪 Testes Rápidos
+# JSON atual
+curl http://<IP>:8081/ws/temperatura
 
-Após salvar, tenta se conectar à rede automaticamente.
+# Log mês 2025-09
+curl http://<IP>:8081/ws/log?yyyymm=202509
 
-Leitura de Sensores
-
-Lê temperatura e umidade via DHT11 a cada 3 segundos.
-
-Exibe valores em tempo real na página principal.
-
-Disponibiliza API REST para integração:
-
-Endpoint /dht
-{
-  "temp": 26.3,
-  "hum": 52.0,
-  "ts": 123456
-}
-
-mDNS
-
-Disponível em http://srvtemp.local (quando conectado na mesma rede).
-
-Publica serviço http._tcp para descoberta automática.
-
-Catch-All na Porta 80
-
-Qualquer endereço acessado retorna a página principal, ideal para experiência de portal cativo.
-
-🔗 Endpoints HTTP
-Endpoint	Método	Descrição
-/	GET	Página principal (menu HTML).
-/status	GET	Retorna JSON com modo de operação (AP/STA), IP, SSID e RSSI.
-/scan	GET	Varre redes Wi-Fi próximas e retorna JSON com SSID, canal, RSSI e tipo.
-/save	POST	Recebe SSID e senha via x-www-form-urlencoded, salva na EEPROM e tenta conectar.
-/clear	POST	Limpa credenciais salvas e reinicia AP.
-/dht	GET	Retorna leitura de temperatura e umidade.
-🖼️ Interface Web
-
-Responsiva (mobile-first).
-
-Estilo D-Link simplificado.
-
-Exibe status de rede e dados de sensores.
-
-Botões para buscar redes, salvar credenciais e limpar EEPROM.
-
-🧪 Fluxo de Uso
-
-Primeiro uso: conecte no Wi-Fi srvTemp.
-
-Abra o navegador e acesse http://192.168.4.1/.
-
-Clique em Buscar redes, selecione o SSID, informe a senha e clique em Salvar e Conectar.
-
-O dispositivo tenta conectar e, se bem-sucedido, passa a responder em http://srvtemp.local.
-
-Acesse /dht ou visualize a leitura na própria página inicial.
-
-🐞 Depuração
-
-No setup(), é exibido no Serial:
-
-Razão do último reset via ESP.getResetReason().
-
-Logs de conexão Wi-Fi.
-
-Logs de POST /save e valores recebidos.
-
-🔧 Ajustes Importantes
-
-Para depurar boot, use Serial.begin(74880) e veja mensagens de inicialização do bootloader.
-
-Se a porta serial “sumir”, verifique alimentação e evite usar GPIO0/GPIO2/GPIO15 para periféricos.
-
-DHT11 deve ser alimentado com 3.3V e ter resistor de pull-up de 10k no DATA.
-
-📄 Licença
-
-Este projeto é open-source sob a licença MIT.
-Você pode usar, modificar e distribuir, mantendo os créditos.
+# Exportar CSV
+curl -OJ http://<IP>:8081/ws/csv?yyyymm=202509
