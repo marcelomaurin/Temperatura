@@ -1,0 +1,199 @@
+object frmcaddevice: Tfrmcaddevice
+  Left = 472
+  Height = 437
+  Top = 193
+  Width = 1109
+  Caption = 'frmcaddevice'
+  ClientHeight = 437
+  ClientWidth = 1109
+  LCLVersion = '4.0.0.4'
+  OnShow = FormShow
+  object Panel1: TPanel
+    Left = 0
+    Height = 120
+    Top = 0
+    Width = 1109
+    Align = alTop
+    ClientHeight = 120
+    ClientWidth = 1109
+    TabOrder = 0
+    object DBNavigator1: TDBNavigator
+      Left = 488
+      Height = 25
+      Top = 88
+      Width = 241
+      BevelOuter = bvNone
+      ChildSizing.EnlargeHorizontal = crsScaleChilds
+      ChildSizing.EnlargeVertical = crsScaleChilds
+      ChildSizing.ShrinkHorizontal = crsScaleChilds
+      ChildSizing.ShrinkVertical = crsScaleChilds
+      ChildSizing.Layout = cclLeftToRightThenTopToBottom
+      ChildSizing.ControlsPerLine = 100
+      ClientHeight = 25
+      ClientWidth = 241
+      Options = []
+      TabOrder = 0
+    end
+  end
+  object Panel2: TPanel
+    Left = 0
+    Height = 317
+    Top = 120
+    Width = 170
+    Align = alLeft
+    TabOrder = 1
+  end
+  object Panel3: TPanel
+    Left = 175
+    Height = 317
+    Top = 120
+    Width = 934
+    Align = alClient
+    ClientHeight = 317
+    ClientWidth = 934
+    TabOrder = 2
+    object PageControl1: TPageControl
+      Left = 1
+      Height = 315
+      Top = 1
+      Width = 932
+      ActivePage = TabSheet2
+      Align = alClient
+      TabIndex = 1
+      TabOrder = 0
+      object TabSheet1: TTabSheet
+        Caption = 'Pesquisa'
+        ClientHeight = 287
+        ClientWidth = 924
+        object DBGrid1: TDBGrid
+          Left = 0
+          Height = 287
+          Top = 0
+          Width = 924
+          Align = alClient
+          Color = clWindow
+          Columns = <          
+            item
+              Title.Caption = 'id_device'
+              FieldName = 'id_device'
+            end          
+            item
+              Title.Caption = 'nome'
+              Width = 300
+              FieldName = 'nome'
+            end          
+            item
+              Title.Caption = 'tipo'
+              FieldName = 'tipo'
+            end          
+            item
+              Title.Caption = 'porta'
+              Width = 200
+              FieldName = 'porta'
+            end          
+            item
+              Title.Caption = 'dtcad'
+              Width = 250
+              FieldName = 'dtcad'
+            end>
+          DataSource = dsdevices
+          TabOrder = 0
+        end
+      end
+      object TabSheet2: TTabSheet
+        Caption = 'Cadastro'
+        ClientHeight = 287
+        ClientWidth = 924
+        object dbnome: TDBEdit
+          Left = 8
+          Height = 23
+          Top = 36
+          Width = 224
+          MaxLength = 0
+          TabOrder = 0
+        end
+        object Label1: TLabel
+          Left = 8
+          Height = 15
+          Top = 18
+          Width = 36
+          Caption = 'Nome:'
+        end
+        object Label2: TLabel
+          Left = 8
+          Height = 15
+          Top = 72
+          Width = 26
+          Caption = 'Tipo:'
+        end
+        object DBComboBox1: TDBComboBox
+          Left = 8
+          Height = 23
+          Top = 88
+          Width = 168
+          DataField = 'tipo'
+          DataSource = dscaddevices
+          ItemHeight = 15
+          Items.Strings = (
+            'Serial'
+            'TCP'
+          )
+          MaxLength = 0
+          Style = csDropDownList
+          TabOrder = 1
+        end
+        object Label3: TLabel
+          Left = 8
+          Height = 15
+          Top = 120
+          Width = 31
+          Caption = 'Porta:'
+        end
+        object dbnome1: TDBEdit
+          Left = 8
+          Height = 23
+          Top = 136
+          Width = 224
+          DataField = 'porta'
+          DataSource = dscaddevices
+          MaxLength = 0
+          TabOrder = 2
+        end
+        object btSalvar: TButton
+          Left = 784
+          Height = 47
+          Top = 232
+          Width = 128
+          Caption = 'Salvar'
+          TabOrder = 3
+          OnClick = btSalvarClick
+        end
+        object btCancelar: TButton
+          Left = 624
+          Height = 47
+          Top = 232
+          Width = 128
+          Caption = 'Cancelar'
+          TabOrder = 4
+          OnClick = btCancelarClick
+        end
+      end
+    end
+  end
+  object Splitter1: TSplitter
+    Left = 170
+    Height = 317
+    Top = 120
+    Width = 5
+  end
+  object dsdevices: TDataSource
+    DataSet = dmBase.zqrydevices
+    Left = 48
+    Top = 200
+  end
+  object dscaddevices: TDataSource
+    DataSet = dmBase.tbldevices
+    Left = 48
+    Top = 266
+  end
+end

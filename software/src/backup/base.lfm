@@ -1,0 +1,162 @@
+object dmBase: TdmBase
+  OnCreate = DataModuleCreate
+  OldCreateOrder = False
+  Height = 281
+  HorizontalOffset = 1130
+  VerticalOffset = 381
+  Width = 341
+  object ZConnection1: TZConnection
+    ControlsCodePage = cCP_UTF8
+    Properties.Strings = (
+      'RawStringEncoding=DB_CP'
+    )
+    Connected = True
+    AddLogMsgToExceptionOrWarningMsg = False
+    DisableSavepoints = False
+    Port = 0
+    Database = 'C:\db\temperatura.db'
+    Protocol = 'sqlite'
+    LibraryLocation = 'C:\db\sqlite3.dll'
+    Left = 56
+    Top = 40
+  end
+  object DataPortSerial1: TDataPortSerial
+    Port = 'COM1'
+    BaudRate = 9600
+    DataBits = 8
+    Parity = 'N'
+    StopBits = stb1
+    FlowControl = sfcNone
+    SoftFlow = False
+    HardFlow = False
+    MinDataBytes = 1
+    HalfDuplex = False
+    Active = False
+    OnDataAppear = DataPortSerial1DataAppear
+    Left = 240
+    Top = 96
+  end
+  object DataPortHTTP1: TDataPortHTTP
+    Method = httpGet
+    SafeMode = True
+    Active = False
+    Left = 240
+    Top = 168
+  end
+  object zqryaux: TZQuery
+    Connection = ZConnection1
+    Params = <>
+    Left = 184
+    Top = 40
+  end
+  object zqrydevices: TZQuery
+    Connection = ZConnection1
+    SQL.Strings = (
+      'select * from devices'
+    )
+    Params = <>
+    Left = 96
+    Top = 162
+    object zqrydevicesid_device: TZInt64Field
+      FieldKind = fkData
+      FieldName = 'id_device'
+      Index = 0
+      LookupCache = False
+      ProviderFlags = [pfInUpdate, pfInWhere]
+      ReadOnly = False
+      Required = False
+    end
+    object zqrydevicesnome: TZRawStringField
+      FieldKind = fkData
+      FieldName = 'nome'
+      Index = 1
+      LookupCache = False
+      ProviderFlags = [pfInUpdate, pfInWhere]
+      ReadOnly = False
+      Required = False
+      Size = 25
+    end
+    object zqrydevicestipo: TZInt64Field
+      FieldKind = fkData
+      FieldName = 'tipo'
+      Index = 2
+      LookupCache = False
+      ProviderFlags = [pfInUpdate, pfInWhere]
+      ReadOnly = False
+      Required = False
+    end
+    object zqrydevicesporta: TZRawCLobField
+      FieldKind = fkData
+      FieldName = 'porta'
+      Index = 3
+      LookupCache = False
+      ProviderFlags = [pfInUpdate, pfInWhere]
+      ReadOnly = False
+      Required = False
+      BlobType = ftMemo
+      Transliterate = False
+    end
+    object zqrydevicesdtcad: TZDateTimeField
+      FieldKind = fkData
+      FieldName = 'dtcad'
+      Index = 4
+      LookupCache = False
+      ProviderFlags = [pfInUpdate, pfInWhere]
+      ReadOnly = False
+      Required = False
+    end
+  end
+  object tbldevices: TZTable
+    Connection = ZConnection1
+    TableName = 'devices'
+    MasterFields = 'id_device'
+    MasterSource = dsdevices
+    LinkedFields = 'id_device'
+    Left = 85
+    Top = 216
+    object tbldevicesnome: TZRawStringField
+      FieldKind = fkData
+      FieldName = 'nome'
+      Index = 0
+      LookupCache = False
+      ProviderFlags = [pfInUpdate, pfInWhere]
+      ReadOnly = False
+      Required = False
+      Size = 25
+    end
+    object tbldevicestipo: TZInt64Field
+      FieldKind = fkData
+      FieldName = 'tipo'
+      Index = 1
+      LookupCache = False
+      ProviderFlags = [pfInUpdate, pfInWhere]
+      ReadOnly = False
+      Required = False
+    end
+    object tbldevicesporta: TZRawCLobField
+      FieldKind = fkData
+      FieldName = 'porta'
+      Index = 2
+      LookupCache = False
+      ProviderFlags = [pfInUpdate, pfInWhere]
+      ReadOnly = False
+      Required = False
+      BlobType = ftMemo
+      Transliterate = False
+    end
+    object tbldevicesdtcad: TZDateTimeField
+      FieldKind = fkData
+      FieldName = 'dtcad'
+      Index = 3
+      LookupCache = False
+      ProviderFlags = [pfInUpdate, pfInWhere]
+      ReadOnly = False
+      Required = False
+    end
+  end
+  object dsdevices: TDataSource
+    DataSet = zqrydevices
+    Left = 32
+    Top = 165
+  end
+end
