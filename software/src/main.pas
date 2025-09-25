@@ -8,10 +8,10 @@ uses
   Classes, SysUtils, Forms, Controls, Graphics, Dialogs, StdCtrls, Buttons,
   ExtCtrls, Menus, PopupNotifier, ComCtrls, LazSerial, FileUtil, LazFileUtils,
   LazSynaSer, Plotpanel, synaser, IdHTTPServer, lNetComponents, LedNumber,
-  setmain, registro, peso, setup, lNet, log, IdCustomHTTPServer,
+  setmain, registro, peso, setup, lNet, log, IdCustomHTTPServer, Math,
   IdCompressionIntercept, IdSSLOpenSSL, IdSchedulerOfThreadDefault, IdContext,
-  // === novos para cliente HTTP, JSON e desenho ===
-  IdHTTP, fpjson, jsonparser, Math, LCLType;
+  // JSON e utilidades
+  fpjson, jsonparser, LCLType, StrUtils;
 
 Const
   Version    : string = '0.03';
@@ -25,6 +25,7 @@ type
   Tfrmmain = class(TForm)
     btConectar: TButton;
     btDesconectar1: TButton;
+    btMonitorar1: TToggleBox;
     btsair: TToggleBox;
     btSetup: TButton;
     Button1: TButton;
@@ -42,6 +43,9 @@ type
     lbstatus: TLabel;
     LazSerial1: TLazSerial;
     lbIPS: TListBox;
+    // Mantido para compatibilidade com o .lfm, mas NÃO é utilizado
+    LHTTPClientComponent1: TLHTTPClientComponent;
+    // TCP “genérico” do seu projeto (server/eco). Continua igual.
     LTCPComponent1: TLTCPComponent;
     MenuItem1: TMenuItem;
     MenuItem2: TMenuItem;
@@ -65,6 +69,7 @@ type
     procedure btConectarClick(Sender: TObject);
     procedure btDesconectar1Click(Sender: TObject);
     procedure btlogClick(Sender: TObject);
+    procedure btMonitorar1Change(Sender: TObject);
     procedure btMonitorarChange(Sender: TObject);
     procedure btsairChange(Sender: TObject);
     procedure btSetupClick(Sender: TObject);
@@ -96,10 +101,22 @@ type
   private
     Lbuffer: String;
 
-    // ===== novos campos =====
-    FHttp  : TIdHTTP;       // cliente HTTP para GET nos IPs
-    FTemps : TStringList;   // temperaturas por índice (alinhado com lbIPS)
-    FHums  : TStringList;   // umidades por índice
+    // --- controle de reentrância ---
+    FHttpInFlight : Boolean;  // true enquanto há um GET em andamento
+    FCollecting   : Boolean;  // true enquanto Timer2 está coletando
+
+
+    // armazenamento para gráficos
+    FTemps : TStringList;   // temperaturas (string) alinhadas com lbIPS
+    FHums  : TStringList;   // umidades     (string)
+
+
+
+    // handlers para o TLTCPComponent criado dinamicamente no GET
+    procedure OnConnect(aSocket: TLSocket);
+    procedure OnReceive(aSocket: TLSocket);
+    procedure OnError(const msg: string; aSocket: TLSocket); // assinatura 0.6.2
+    procedure OnDisc(aSocket: TLSocket);
 
     procedure ListDev();
     function PegaSerial() : String;
@@ -108,15 +125,34 @@ type
     procedure getPage(aSocket : TLSocket; PeerAddress : string; mensagem: string);
     procedure RespostaHTMLCabecalho(aSocket: TLSocket);
 
-    procedure SalvarLista();     // grava lbIPS.Items em %AppData%/… (ou ~/.config)
+    procedure SalvarLista();     // grava lbIPS.Items
     procedure CarregarLista();   // restaura lista salvo no início
 
-    // ===== helpers novos =====
+    // ===== helpers =====
     procedure EnsureListsSize;
-    function BuildURL(const Item: string): string;
-    function FetchTempHum(const AUrl: string; out ATemp, AHum: Double): Boolean;
+    function  BuildURL(const Item: string): string;
+    procedure ParseUrl(const AUrl: String; out Host, Path: String; out Port: Integer);
+    function  ExtractHttpBody(const Resp: String): String;
+    function  ReplaceChar(const S: String; OldC, NewC: Char): String;
+    function  JsonNumToFloat(const J: TJSONData; out V: Double): Boolean;
+
+    // HTTP GET via TLTCPComponent (modelo do unit registro)
+    function  HttpGetViaTcp(const AUrl: string; out Body: string; const TimeoutMs: Integer = 6000): Boolean;
+
+    // Usa o GET acima para pegar temperatura/umidade
+    function  FetchTempHum(const AUrl: string; out ATemp, AHum: Double): Boolean;
+
     procedure DrawBars(const Panel: TPlotPanel; const Values, Labels: TStrings; const Title, UnitText: string);
   public
+    // buffers/flags usados na requisição atual
+    Req: string;
+    chunk : string;
+    Resp : string;
+    Failed : boolean;
+    Done: Boolean;
+    procedure LHTTPClientComponent1DoneInput(ASocket: TLHTTPClientSocket);
+    function  LHTTPClientComponent1Input(ASocket: TLHTTPClientSocket; ABuffer: PChar; ASize: Integer): Integer;
+
   end;
 
 var
@@ -128,12 +164,78 @@ implementation
 
 const
   LIST_FILENAME = 'srvtemp_ips.lst';
+  CRLF = #13#10;
 
 { Tfrmmain }
+
+function Tfrmmain.LHTTPClientComponent1Input(ASocket: TLHTTPClientSocket;
+  ABuffer: PChar; ASize: Integer): Integer;
+var
+  chunk: string;
+begin
+  SetString(chunk, ABuffer, ASize);
+  FHttpBody := FHttpBody + chunk;   // acumula corpo
+  Result := ASize;                  // MUITO importante: informar bytes consumidos
+end;
+
+procedure Tfrmmain.LHTTPClientComponent1DoneInput(ASocket: TLHTTPClientSocket);
+begin
+  FHttpDone := True;                // marca resposta concluída
+end;
+
+function Tfrmmain.HttpGetSync(const AUrl: string; out Body: string; const TimeoutMs: Integer = 6000): Boolean;
+var
+  Host, Path: string;
+  Port: Integer;
+  t0: QWord;
+begin
+  Result := False; Body := '';
+  if (AUrl = '') then Exit;
+
+  // evita 2ª requisição concorrente
+  if FHttpInFlight then Exit(False);
+  FHttpInFlight := True;
+  try
+    ParseUrl(AUrl, Host, Path, Port);
+
+    FHttpBody := '';
+    FHttpDone := False;
+
+    LHTTPClientComponent1.Host    := Host;
+    LHTTPClientComponent1.Port    := Port;
+    LHTTPClientComponent1.URI     := Path;
+    LHTTPClientComponent1.Method  := hmGet;
+    LHTTPClientComponent1.Timeout := TimeoutMs;
+
+    LHTTPClientComponent1.SendRequest;
+
+    t0 := GetTickCount64;
+    repeat
+      // processa eventos de socket, sem liberar UI (evita reentrância pelo Timer)
+      LHTTPClientComponent1.CallAction;
+      Sleep(1);
+      if FHttpDone then Break;
+    until (GetTickCount64 - t0) >= QWord(TimeoutMs);
+
+    if not FHttpDone then Exit(False);
+    Body := Trim(FHttpBody);
+    Result := Body <> '';
+  finally
+    FHttpInFlight := False;
+  end;
+end;
+
 
 procedure Tfrmmain.FormCreate(Sender: TObject);
 begin
   Lbuffer := '';
+
+  FHttpInFlight := False;
+  FCollecting   := False;
+
+  LHTTPClientComponent1.OnInput     := @LHTTPClientComponent1Input;
+  LHTTPClientComponent1.OnDoneInput := @LHTTPClientComponent1DoneInput;
+
 
   frmlog      := TfrmLog.Create(Self);
   frmsetup    := Tfrmsetup.Create(Self);
@@ -154,14 +256,18 @@ begin
 
   lbVersao.Caption := Version;
 
-  // cliente HTTP + armazenamento
-  FHttp := TIdHTTP.Create(Self);
-  FHttp.ConnectTimeout := 1500;
-  FHttp.ReadTimeout    := 2000;
-  FHttp.Request.UserAgent := 'srvtemp-monitor/0.1';
-
   FTemps := TStringList.Create;
   FHums  := TStringList.Create;
+
+  FCollecting   := False;
+  FHttpInFlight := False;
+
+  // estado inicial dos buffers/flags da requisição
+  Req    := '';
+  chunk  := '';
+  Resp   := '';
+  Failed := False;
+  Done   := False;
 
   // Timer2 começa desligado; ative pelo toggle
   Timer2.Enabled := False;
@@ -174,8 +280,8 @@ begin
   frmlog.Free;
   frmRegistrar.Free;
   frmSetup.Free;
+  frmpeso.Free;
 
-  FreeAndNil(FHttp);
   FreeAndNil(FTemps);
   FreeAndNil(FHums);
 end;
@@ -370,28 +476,39 @@ var
   url: string;
   t, h: Double;
 begin
-  // coleta periódica controlada pelo Timer2
-  EnsureListsSize;
+  // já coletando? evita reentrada
+  if FCollecting then Exit;
 
-  for i := 0 to lbIPS.Items.Count - 1 do
-  begin
-    url := BuildURL(lbIPS.Items[i]);
-    if FetchTempHum(url, t, h) then
+  FCollecting := True;
+  Timer2.Enabled := False;  // não deixa disparar de novo durante a coleta
+  try
+    EnsureListsSize;
+
+    for i := 0 to lbIPS.Items.Count - 1 do
     begin
-      FTemps[i] := FormatFloat('0.00', t);
-      FHums[i]  := FormatFloat('0.00', h);
-    end
-    else
-    begin
-      FTemps[i] := '';
-      FHums[i]  := '';
+      url := BuildURL(lbIPS.Items[i]);
+      if FetchTempHum(url, t, h) then
+      begin
+        FTemps[i] := FormatFloat('0.00', t);
+        FHums[i]  := FormatFloat('0.00', h);
+      end
+      else
+      begin
+        FTemps[i] := '';
+        FHums[i]  := '';
+      end;
     end;
-  end;
 
-  // redesenha os gráficos
-  DrawBars(PlotPanel1, FTemps, lbIPS.Items, 'Temperatura atual por IP', '°C');
-  DrawBars(PlotPanel2, FHums,  lbIPS.Items, 'Umidade atual por IP',     '%');
+    // redesenha ao final (uma vez só)
+    DrawBars(PlotPanel1, FTemps, lbIPS.Items, 'Temperatura atual por IP', '°C');
+    DrawBars(PlotPanel2, FHums,  lbIPS.Items, 'Umidade atual por IP',     '%');
+
+  finally
+    FCollecting := False;
+    Timer2.Enabled := btMonitorar.Checked; // só reabilita se o toggle estiver ON
+  end;
 end;
+
 
 procedure Tfrmmain.Button1Click(Sender: TObject);
 begin
@@ -455,6 +572,11 @@ end;
 procedure Tfrmmain.btlogClick(Sender: TObject);
 begin
   frmLog.Show;
+end;
+
+procedure Tfrmmain.btMonitorar1Change(Sender: TObject);
+begin
+  lbIPS.Items.clear;
 end;
 
 procedure Tfrmmain.btMonitorarChange(Sender: TObject);
@@ -547,7 +669,7 @@ begin
   RespostaHTMLCabecalho(aSocket);
 end;
 
-{ ===== Persistência da lista (igual ao setmain, na pasta do app) ===== }
+{ ===== Persistência da lista ===== }
 
 procedure Tfrmmain.SalvarLista();
 var
@@ -585,7 +707,7 @@ begin
   end;
 end;
 
-{ ======= helpers novos ======= }
+{ ======= helpers ======= }
 
 procedure Tfrmmain.EnsureListsSize;
 var
@@ -608,58 +730,220 @@ begin
 end;
 
 function Tfrmmain.BuildURL(const Item: string): string;
+  function EndsWith(const S, Suffix: string): Boolean;
+  var L, LS: Integer;
+  begin
+    LS := Length(Suffix); L := Length(S);
+    Result := (L>=LS) and (Copy(S, L-LS+1, LS) = Suffix);
+  end;
 var
   host: string;
 begin
-  host := Item;
-  // Se o usuário digitou só IP ou IP:porta, normaliza
-  if Pos('http', LowerCase(host)) <> 1 then
+  host := Trim(Item);
+  if host = '' then Exit('');
+  // aceita "ip", "ip:port", "http://ip", "http://ip:port"
+  if not EndsWith(LowerCase(host), '/ws/coleta') then
   begin
-    // garante porta 8081 se não foi informada
-    if Pos(':', host) = 0 then
-      host := host + ':8081';
-    Result := 'http://' + host + '/ws/temperatura';
-  end
-  else
-  begin
-    // se já vier com http:// assume que o caminho está correto
-    Result := host;
-    if not Result.EndsWith('/ws/temperatura') then
-      Result := IncludeTrailingPathDelimiter(Result) + 'ws/temperatura';
+    if (host <> '') and (host[Length(host)] <> '/') then
+      host := host + '/';
+    host := host + 'ws/coleta';
+  end;
+  Result := host;
+end;
+
+procedure Tfrmmain.ParseUrl(const AUrl: String; out Host, Path: String; out Port: Integer);
+var
+  U, HP: String; pSlash, pColon: SizeInt;
+begin
+  Host := ''; Path := '/'; Port := 80;
+  U := Trim(AUrl);
+  if U = '' then Exit;
+
+  // remove esquema
+  if Pos('://', U) > 0 then
+    U := Copy(U, Pos('://', U) + 3, MaxInt);
+
+  // separa host[:port] / path
+  pSlash := Pos('/', U);
+  if pSlash > 0 then begin
+    HP   := Copy(U, 1, pSlash - 1);
+    Path := Copy(U, pSlash, MaxInt);
+    if Path = '' then Path := '/';
+  end else begin
+    HP   := U;
+    Path := '/';
+  end;
+
+  // host : port
+  pColon := Pos(':', HP);
+  if pColon > 0 then begin
+    Host := Copy(HP, 1, pColon - 1);
+    Port := StrToIntDef(Copy(HP, pColon + 1, MaxInt), 80);
+  end else begin
+    Host := HP;
+    Port := 80;
+  end;
+
+  if Host = '' then Host := '127.0.0.1';
+  if Path = '' then Path := '/';
+end;
+
+function Tfrmmain.ExtractHttpBody(const Resp: String): String;
+var
+  p: SizeInt;
+begin
+  p := Pos(CRLF + CRLF, Resp);
+  if p > 0 then Exit(Copy(Resp, p + 4, MaxInt));
+  // fallback para LFLF
+  p := Pos(#10#10, Resp);
+  if p > 0 then Exit(Copy(Resp, p + 2, MaxInt));
+  Result := Resp; // já é corpo
+end;
+
+function Tfrmmain.ReplaceChar(const S: String; OldC, NewC: Char): String;
+var
+  R: String; i: SizeInt;
+begin
+  R := S;
+  for i := 1 to Length(R) do
+    if R[i] = OldC then R[i] := NewC;
+  Result := R;
+end;
+
+function Tfrmmain.JsonNumToFloat(const J: TJSONData; out V: Double): Boolean;
+var
+  FS: TFormatSettings; S: String;
+begin
+  Result := False; V := NaN;
+  if (J = nil) or (J.JSONType = jtNull) then Exit;
+
+  case J.JSONType of
+    jtNumber: begin V := J.AsFloat; Result := not IsNan(V); end;
+    jtString:
+      begin
+        S  := Trim(J.AsString);
+        S  := ReplaceChar(S, ',', '.');
+        FS := DefaultFormatSettings; FS.DecimalSeparator := '.';
+        Result := TryStrToFloat(S, V, FS);
+      end;
   end;
 end;
 
+procedure Tfrmmain.OnConnect(aSocket: TLSocket);
+begin
+  aSocket.SendMessage(Req);
+end;
 
+procedure Tfrmmain.OnReceive(aSocket: TLSocket);
+begin
+  aSocket.GetMessage(chunk);
+  if chunk <> '' then
+    Resp := Resp + chunk;
+end;
+
+procedure Tfrmmain.OnError(const msg: string; aSocket: TLSocket);
+begin
+  Failed := True;
+  if Assigned(frmlog) then
+    frmlog.Log('HTTP GET erro: ' + msg);
+  // loop encerrará no Disconnect/timeout
+end;
+
+procedure Tfrmmain.OnDisc(aSocket: TLSocket);
+begin
+  Done := True;
+end;
+
+function Tfrmmain.HttpGetViaTcp(const AUrl: string; out Body: string; const TimeoutMs: Integer): Boolean;
+var
+  Host, Path : string;
+  Port: Integer;
+  t0: QWord;
+  tcp: TLTCPComponent;
+begin
+  Resp  := '';
+  chunk := '';
+  Done  := False;
+  Failed:= False;
+  Body := ''; Result := False;
+  if (AUrl = '') then Exit;
+
+  // trava paralelismo
+  if FHttpInFlight then Exit(False);
+  FHttpInFlight := True;
+  try
+    ParseUrl(AUrl, Host, Path, Port);
+
+    Req :=
+      'GET ' + Path + ' HTTP/1.0' + CRLF +
+      'Host: ' + Host + CRLF +
+      'Accept: application/json' + CRLF +
+      'Connection: close' + CRLF + CRLF;
+
+    Resp := ''; chunk := '';
+    Done := False; Failed := False;
+
+    tcp := TLTCPComponent.Create(nil);
+    try
+      tcp.Timeout      := TimeoutMs;
+      tcp.OnConnect    := @OnConnect;
+      tcp.OnReceive    := @OnReceive;
+      tcp.OnError      := @OnError;      // assinatura compatível 0.6.2
+      tcp.OnDisconnect := @OnDisc;
+
+      if not tcp.Connect(Host, Port) then
+      begin
+        tcp.CallAction;                  // processa início
+        if not tcp.Connected then Exit(False);
+      end;
+
+      t0 := GetTickCount64;
+      repeat
+        tcp.CallAction;
+        Sleep(1);
+        if Done then Break;
+      until (GetTickCount64 - t0) >= QWord(TimeoutMs);
+
+      if not Done then
+      begin
+        tcp.Disconnect(True);
+        Exit(False);
+      end;
+
+      if Failed or (Resp = '') then Exit(False);
+
+      Body := Trim(ExtractHttpBody(Resp));
+      Result := Body <> '';
+    finally
+      tcp.Free;
+    end;
+  finally
+    FHttpInFlight := False;
+  end;
+end;
 
 function Tfrmmain.FetchTempHum(const AUrl: string; out ATemp, AHum: Double): Boolean;
 var
-  S: string;
-  J: TJSONData;
+  S: string; J, N: TJSONData; Obj: TJSONObject;
+  OkTemp, OkHum: Boolean;
 begin
-  Result := False;
-  ATemp := NaN;
-  AHum  := NaN;
+  if FHttpInFlight then Exit(False);
 
-  FHttp.ConnectTimeout := 5000; // 5s
-  FHttp.ReadTimeout    := 6000; // 6s
+  Result := False; ATemp := NaN; AHum := NaN;
 
-  try
-    S := FHttp.Get(AUrl);  // aqui AUrl já vem com :8081
-  except
-    Exit(False);
-  end;
+  if not HttpGetViaTcp(AUrl, S, 6000) then Exit(False);
+  if S = '' then Exit(False);
 
   try
     J := GetJSON(S);
     try
-      if (J.JSONType = jtObject) then
-      begin
-        if J.FindPath('temperature') <> nil then
-          ATemp := J.FindPath('temperature').AsFloat;
-        if J.FindPath('humidity') <> nil then
-          AHum := J.FindPath('humidity').AsFloat;
-        Result := (not IsNan(ATemp)) or (not IsNan(AHum));
-      end;
+      if J.JSONType <> jtObject then Exit(False);
+      Obj := TJSONObject(J);
+
+      N := Obj.FindPath('temperature'); OkTemp := JsonNumToFloat(N, ATemp);
+      N := Obj.FindPath('humidity');    OkHum  := JsonNumToFloat(N, AHum);
+
+      Result := OkTemp or OkHum;
     finally
       J.Free;
     end;
@@ -668,18 +952,28 @@ begin
   end;
 end;
 
-
 procedure Tfrmmain.DrawBars(const Panel: TPlotPanel; const Values, Labels: TStrings; const Title, UnitText: string);
 var
   C: TCanvas;
   W, H, i, n: Integer;
   margin, barW, x0, y0, x, y: Integer;
-  maxVal, v: Double;
+  innerW, innerH: Integer;
+  denBars: Integer;
+  maxVal, v, denY: Double;
   lbl: string;
+
+  function SafeMaxVal: Double;
+  begin
+    if (IsNan(maxVal)) or (IsInfinite(maxVal)) or (maxVal <= 0) then
+      Result := 1.0
+    else
+      Result := maxVal;
+  end;
+
 begin
   C := Panel.Canvas;
-  W := Panel.ClientWidth;
-  H := Panel.ClientHeight;
+  W := Max(1, Panel.ClientWidth);
+  H := Max(1, Panel.ClientHeight);
 
   C.Brush.Color := clWhite;
   C.FillRect(0,0,W,H);
@@ -688,34 +982,39 @@ begin
   C.Rectangle(0,0,W-1,H-1);
 
   n := Labels.Count;
-  if n = 0 then
+  if n <= 0 then
   begin
     C.Font.Color := clGrayText;
     C.TextOut(8,8,'Sem itens para monitorar.');
     Exit;
   end;
 
-  // pega maior valor (escala)
-  maxVal := 0;
+  // maior valor (escala)
+  maxVal := 0.0;
   for i := 0 to n-1 do
     if (i < Values.Count) and TryStrToFloat(Values[i], v) then
       if v > maxVal then maxVal := v;
 
-  if maxVal <= 0 then maxVal := 1;
+  denY := SafeMaxVal;  // divisor protegido
 
   margin := 32;
+  innerW := W - 2*margin; if innerW < 1 then innerW := 1;
+  innerH := H - 2*margin; if innerH < 1 then innerH := 1;
+
   x0 := margin;
   y0 := H - margin;
 
   // eixos
   C.Pen.Color := clBlack;
   C.MoveTo(x0, y0);
-  C.LineTo(W - margin div 2, y0);     // X
+  C.LineTo(x0 + innerW, y0);     // X
   C.MoveTo(x0, y0);
-  C.LineTo(x0, margin div 2);         // Y
+  C.LineTo(x0, y0 - innerH);     // Y
 
-  // barras
-  barW := Max(10, (W - 2*margin) div Max(1, 2*n));
+  // barras (divisor seguro)
+  denBars := Max(1, 2*n);
+  barW    := Max(10, innerW div denBars);
+
   x := x0 + 10;
 
   C.Brush.Color := RGBToColor(80, 160, 255);
@@ -723,13 +1022,12 @@ begin
 
   for i := 0 to n-1 do
   begin
-    v := 0;
+    v := 0.0;
     if (i < Values.Count) and TryStrToFloat(Values[i], v) then
     begin
-      y := y0 - Round((H - 2*margin) * (v / maxVal));
+      y := y0 - Round(innerH * (v / denY)); // sem divisão por zero
       C.Rectangle(x, y, x + barW, y0);
 
-      // label valor
       lbl := FormatFloat('0.0', v) + ' ' + UnitText;
       C.Font.Color := clBlack;
       C.TextOut(x, y - 14, lbl);
@@ -743,7 +1041,7 @@ begin
       C.Pen.Color := clNavy;
     end;
 
-    // rótulo abaixo (encurta se for URL)
+    // rótulo
     C.Font.Color := clGray;
     lbl := Labels[i];
     if Pos('http', LowerCase(lbl)) = 1 then
@@ -762,6 +1060,7 @@ begin
   C.Font.Color := clBlack;
   C.TextOut(margin, 6, Title);
 end;
+
 
 end.
 

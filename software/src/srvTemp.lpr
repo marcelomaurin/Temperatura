@@ -8,7 +8,7 @@ uses
   {$ENDIF}{$ENDIF}
   Interfaces, // this includes the LCL widgetset
   main,
-  Forms, LazSerialPort, indylaz, plot, lnetbase, lnetvisual;
+  Forms, LazSerialPort, indylaz, plot, FrameViewer09, lnetbase, lnetvisual;
 
 {$R *.res}
 

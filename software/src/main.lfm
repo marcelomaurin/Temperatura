@@ -1,7 +1,7 @@
 object frmmain: Tfrmmain
-  Left = 389
+  Left = 628
   Height = 354
-  Top = 217
+  Top = 218
   Width = 582
   Caption = 'Servidor de Temperatura'
   ClientHeight = 354
@@ -154,10 +154,19 @@ object frmmain: Tfrmmain
         Left = 152
         Height = 25
         Top = 104
-        Width = 75
+        Width = 104
         Caption = 'Monitorar'
         TabOrder = 3
         OnChange = btMonitorarChange
+      end
+      object btMonitorar1: TToggleBox
+        Left = 152
+        Height = 25
+        Top = 144
+        Width = 104
+        Caption = 'Deletar todos'
+        TabOrder = 4
+        OnChange = btMonitorar1Change
       end
     end
     object tsMonitorarTemp: TTabSheet
@@ -464,12 +473,20 @@ object frmmain: Tfrmmain
     DefaultPort = 8098
     IOHandler = IdServerIOHandlerSSLOpenSSL1
     Scheduler = IdSchedulerOfThreadDefault1
-    Left = 256
-    Top = 240
+    Left = 336
+    Top = 224
   end
   object Timer2: TTimer
+    Interval = 10000
     OnTimer = Timer2Timer
-    Left = 174
-    Top = 239
+    Left = 352
+    Top = 288
+  end
+  object LHTTPClientComponent1: TLHTTPClientComponent
+    OnDoneInput = LHTTPClientComponent1DoneInput
+    OnInput = LHTTPClientComponent1Input
+    Timeout = 0
+    Left = 296
+    Top = 180
   end
 end
