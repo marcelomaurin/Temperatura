@@ -113,12 +113,48 @@ object frmmain: Tfrmmain
       Height = 520
       Top = 1
       Width = 708
-      ActivePage = tsSobre
+      ActivePage = tbStatus
       Align = alClient
-      TabIndex = 0
+      TabIndex = 1
       TabOrder = 0
       object tsSobre: TTabSheet
         Caption = 'Sobre'
+      end
+      object tbStatus: TTabSheet
+        Caption = 'Status'
+        ClientHeight = 492
+        ClientWidth = 700
+        object AdvLed1: TAdvLed
+          Left = 96
+          Height = 24
+          Top = 56
+          Width = 24
+        end
+        object btVarredura: TButton
+          Left = 31
+          Height = 37
+          Top = 144
+          Width = 123
+          Caption = 'Iniciar varredura'
+          TabOrder = 0
+          OnClick = btVarreduraClick
+        end
+        object Label1: TLabel
+          Left = 141
+          Height = 15
+          Top = 62
+          Width = 50
+          Caption = 'Verredura'
+        end
+        object btVarredura1: TButton
+          Left = 176
+          Height = 37
+          Top = 144
+          Width = 123
+          Caption = 'Parar Varredura'
+          TabOrder = 1
+          OnClick = btVarredura1Click
+        end
       end
     end
   end
@@ -193,8 +229,8 @@ object frmmain: Tfrmmain
     end
   end
   object ImageList1: TImageList
-    Left = 307
-    Top = 201
+    Left = 232
+    Top = 88
     Bitmap = {
       4C7A050000001000000010000000C40800000000000078DADD967B50D3D915C7
       4BABEBA3EE0CB37567DC5DBB1DBBCACBAD3A83D3AD65D4EAE2AB8ABA3AD25551
@@ -268,5 +304,14 @@ object frmmain: Tfrmmain
       010BDB53E52914CA05F4DEDC9C9898E8929A9AEA80856DECC36B1FE2C562F112
       BC2F2020E0427F7FFF222C6C631F5EFB7FEEF799E89F3BE4DAE4
     }
+  end
+  object tmProcessa: TTimer
+    Enabled = False
+    Interval = 10000
+    OnTimer = tmProcessaTimer
+    OnStartTimer = tmProcessaStartTimer
+    OnStopTimer = tmProcessaStopTimer
+    Left = 728
+    Top = 122
   end
 end

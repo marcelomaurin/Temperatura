@@ -1,16 +1,15 @@
 object dmBase: TdmBase
   OnCreate = DataModuleCreate
   OldCreateOrder = False
-  Height = 281
+  Height = 394
   HorizontalOffset = 1130
   VerticalOffset = 381
-  Width = 341
+  Width = 420
   object ZConnection1: TZConnection
     ControlsCodePage = cCP_UTF8
     Properties.Strings = (
       'RawStringEncoding=DB_CP'
     )
-    Connected = True
     AddLogMsgToExceptionOrWarningMsg = False
     DisableSavepoints = False
     Port = 0
@@ -52,66 +51,16 @@ object dmBase: TdmBase
   object zqrydevices: TZQuery
     Connection = ZConnection1
     SQL.Strings = (
-      'select * from devices'
+      'select * from devices, tipo'
+      'where devices.tipo = tipo.id_tipo'
     )
     Params = <>
     Left = 96
     Top = 162
-    object zqrydevicesid_device: TZInt64Field
-      FieldKind = fkData
-      FieldName = 'id_device'
-      Index = 0
-      LookupCache = False
-      ProviderFlags = [pfInUpdate, pfInWhere]
-      ReadOnly = False
-      Required = False
-    end
-    object zqrydevicesnome: TZRawStringField
-      FieldKind = fkData
-      FieldName = 'nome'
-      Index = 1
-      LookupCache = False
-      ProviderFlags = [pfInUpdate, pfInWhere]
-      ReadOnly = False
-      Required = False
-      Size = 25
-    end
-    object zqrydevicestipo: TZInt64Field
-      FieldKind = fkData
-      FieldName = 'tipo'
-      Index = 2
-      LookupCache = False
-      ProviderFlags = [pfInUpdate, pfInWhere]
-      ReadOnly = False
-      Required = False
-    end
-    object zqrydevicesporta: TZRawCLobField
-      FieldKind = fkData
-      FieldName = 'porta'
-      Index = 3
-      LookupCache = False
-      ProviderFlags = [pfInUpdate, pfInWhere]
-      ReadOnly = False
-      Required = False
-      BlobType = ftMemo
-      Transliterate = False
-    end
-    object zqrydevicesdtcad: TZDateTimeField
-      FieldKind = fkData
-      FieldName = 'dtcad'
-      Index = 4
-      LookupCache = False
-      ProviderFlags = [pfInUpdate, pfInWhere]
-      ReadOnly = False
-      Required = False
-    end
   end
   object tbldevices: TZTable
     Connection = ZConnection1
     TableName = 'devices'
-    MasterFields = 'id_device'
-    MasterSource = dsdevices
-    LinkedFields = 'id_device'
     Left = 85
     Top = 216
     object tbldevicesnome: TZRawStringField
@@ -158,5 +107,12 @@ object dmBase: TdmBase
     DataSet = zqrydevices
     Left = 32
     Top = 165
+  end
+  object tbltipos: TZTable
+    Filtered = True
+    Connection = ZConnection1
+    TableName = 'Tipo'
+    Left = 352
+    Top = 320
   end
 end

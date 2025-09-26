@@ -20,22 +20,17 @@ type
     DataPortHTTP1: TDataPortHTTP;
     DataPortSerial1: TDataPortSerial;
     dsdevices: TDataSource;
-    ZConnection1: TZConnection;
-    zqryaux: TZQuery;
-    zqrydevices: TZQuery;
-    zqrydevicesdtcad: TZDateTimeField;
-    zqrydevicesid_device: TZInt64Field;
-    zqrydevicesnome: TZRawStringField;
-    zqrydevicesporta: TZRawCLobField;
-    zqrydevicestipo: TZInt64Field;
-    tbldevices: TZTable;
     tbldevicesdtcad: TZDateTimeField;
     tbldevicesnome: TZRawStringField;
     tbldevicesporta: TZRawCLobField;
     tbldevicestipo: TZInt64Field;
+    tbltipos: TZTable;
+    ZConnection1: TZConnection;
+    zqryaux: TZQuery;
+    zqrydevices: TZQuery;
+    tbldevices: TZTable;
     procedure DataModuleCreate(Sender: TObject);
     procedure DataModuleDestroy(Sender: TObject);
-    // >>> assinatura correta do evento conforme TMsgEvent:
     procedure DataPortSerial1DataAppear(Sender: TObject; const AMsg: AnsiString);
   private
     FBaseUrl: string;
@@ -59,6 +54,7 @@ type
   public
     { ====== BANCO ====== }
     procedure AplicaConfigBanco;
+    procedure editarDevice;
 
     { ====== SERIAL (DataPortSerial1) ====== }
     function AtualizaConSerial(const AReabrir: Boolean = True): Boolean;
@@ -81,10 +77,8 @@ type
     procedure HttpConfig(const ABaseUrl: string; const ATimeoutMs: Integer = 5000);
     function TcpGet(const APath: string; out AResponseText: string): Boolean;
     function TcpGetJson(const APath: string; out JsonResp: TJSONData): Boolean;
-    //function TcpPostJsonText(const APath: string; const JsonBody: TJSONData; out AResponseText: string): Boolean;
-    //function TcpPostJson(const APath: string; const JsonBody: TJSONData; out JsonResp: TJSONData): Boolean;
 
-       // ===== DEVICES (consulta/insert) =====
+    { ===== DEVICES (consulta/insert) ===== }
     // Abre todos os devices no zqrydevices (dataset do dsdevices)
     function DevicesOpenAll: Boolean;
 
@@ -94,11 +88,15 @@ type
     // Carrega um device específico por ID (aceita id ou id_device)
     function DeviceFindById(const AId: Int64): Boolean;
 
-    // INSERT: retorna o ID gerado (via last_insert_rowid)
-    function DeviceInsert(const ANome, APorta: string; ATipo: Integer; const AData: TDateTime): Int64;
-    function DeviceInsertNow(const ANome, APorta: string; ATipo: Integer): Int64; // dtcad := Now
+    // INSERT: com ou sem dtcad informado; retorna o ID (SQLite)
+    function DeviceInsert(): Int64; overload;
+    function DeviceInsertNow(): Int64; overload;
 
     property OnTcpJsonReceived: TOnTcpJsonReceived read FOnTcpJsonReceived write FOnTcpJsonReceived;
+
+    function BuscaDevices(const AFiltro: string = ''): Boolean;
+    function ListaPortasTipo2(out APortas: TStringList): Boolean;
+
   end;
 
 var
@@ -109,6 +107,79 @@ implementation
 {$R *.lfm}
 
 { TdmBase }
+
+function TdmBase.BuscaDevices(const AFiltro: string): Boolean;
+begin
+  zqryaux.Close;
+
+  if Trim(AFiltro) = '' then
+  begin
+    // tenta id_device; se seu schema usa "id", o SELECT abaixo já lida via alias
+    zqryaux.SQL.Text :=
+      'select '+
+      '  * '+
+      'from devices '+
+      'order by nome';
+  end
+  else
+  begin
+    zqryaux.SQL.Text :=
+      'select '+
+      ' * '+
+      'from devices '+
+      'where nome like :n '+
+      'order by nome';
+    zqryaux.ParamByName('n').AsString := '%' + AFiltro + '%';
+  end;
+
+  try
+    zqryaux.Open;
+    Result := not zqryaux.IsEmpty;
+  except
+    zqryaux.Close;
+    Result := False;
+  end;
+end;
+
+function TdmBase.ListaPortasTipo2(out APortas: TStringList): Boolean;
+begin
+  // Garante a lista de saída
+  if Assigned(APortas) then
+    APortas.Clear
+  else
+    APortas := TStringList.Create;
+
+  Result := False;
+
+  zqryaux.Close;
+  // DISTINCT evita portas repetidas; ajusta o nome da coluna se necessário
+  zqryaux.SQL.Text :=
+    'select distinct porta '+
+    'from devices '+
+    'where tipo = :t '+
+    '  and porta is not null '+
+    '  and trim(porta) <> '''' '+
+    'order by porta';
+  zqryaux.ParamByName('t').AsInteger := 2;
+
+  try
+    zqryaux.Open;
+    if not zqryaux.IsEmpty then
+    begin
+      zqryaux.First;
+      while not zqryaux.EOF do
+      begin
+        APortas.Add(zqryaux.FieldByName('porta').AsString);
+        zqryaux.Next;
+      end;
+      Result := (APortas.Count > 0);
+    end;
+  except
+    // Em caso de erro, mantém Result=False; lista já existe/está limpa
+  end;
+end;
+
+
 
 procedure TdmBase.DataModuleCreate(Sender: TObject);
 begin
@@ -172,17 +243,21 @@ procedure TdmBase.AplicaConfigBanco;
 var
   dllPath: string;
 begin
+  // tenta dll no mesmo dir do .exe
   dllPath := ExtractFilePath(ParamStr(0)) + 'sqlite3.dll';
   if FileExists(dllPath) then
     ZConnection1.LibraryLocation := dllPath;
 
-  ZConnection1.Protocol:= 'sqlite';
-  if Assigned(FSETMAIN) and (Trim(FSETMAIN.LocalBanco) <> '') then
-    begin
-      ZConnection1.Database := FSETMAIN.LocalBanco;
-      ZConnection1.LibraryLocation:= ExtractFilePath(FSETMAIN.LocalBanco)+'\sqlite3.dll';
+  ZConnection1.Protocol := 'sqlite';
 
-    end
+  if Assigned(FSETMAIN) and (Trim(FSETMAIN.LocalBanco) <> '') then
+  begin
+    ZConnection1.Database := FSETMAIN.LocalBanco;
+    // fallback: se houver uma sqlite3.dll ao lado do banco, usa também
+    dllPath := ExtractFilePath(FSETMAIN.LocalBanco) + 'sqlite3.dll';
+    if FileExists(dllPath) then
+      ZConnection1.LibraryLocation := dllPath;
+  end
   else
     ZConnection1.Database := 'c:\db\temperatura.db';
 
@@ -194,21 +269,28 @@ begin
   end;
 end;
 
+procedure TdmBase.editarDevice;
+begin
+  tbldevices.Open;
+  tbldevices.Insert;
+end;
+
 function TdmBase.BaudFromCode(Code: Integer): Integer;
 begin
+  // mapeamento típico (ajuste conforme teu SetMain)
   case Code of
-    0: Result := 1200;
-    1: Result := 1800;
-    2: Result := 1200;
-    3: Result := 2400;
-    4: Result := 4800;
-    5: Result := 9600;
-    6: Result := 14400;
-    7: Result := 19200;
-    8: Result := 38400;
-    9: Result := 56000;
-    10: Result := 57600;
-    11: Result := 115200;
+    0:  Result := 1200;
+    1:  Result := 1800;
+    2:  Result := 2400;
+    3:  Result := 4800;
+    4:  Result := 9600;
+    5:  Result := 14400;
+    6:  Result := 19200;
+    7:  Result := 38400;
+    8:  Result := 56000;
+    9:  Result := 57600;
+    10: Result := 115200;
+    11: Result := 230400;
   else
     Result := 9600;
   end;
@@ -229,11 +311,11 @@ end;
 function TdmBase.ParityCharFromCode(Code: Integer): AnsiChar;
 begin
   case Code of
-    0: Result := 'N';
-    1: Result := 'O';
-    2: Result := 'E';
-    3: Result := 'M';
-    4: Result := 'S';
+    0: Result := 'N'; // None
+    1: Result := 'O'; // Odd
+    2: Result := 'E'; // Even
+    3: Result := 'M'; // Mark
+    4: Result := 'S'; // Space
   else
     Result := 'N';
   end;
@@ -243,8 +325,7 @@ function TdmBase.StopBitsFromCode(Code: Integer): TSerialStopBits;
 begin
   case Code of
     0: Result := stb1;
-    1: Result := stb2;   // se precisar de 1.5, ajuste seu code map
-    2: Result := stb2;
+    1: Result := stb2; // (use stb1_5 se teu componente suportar)
   else
     Result := stb1;
   end;
@@ -256,15 +337,16 @@ begin
   if not Assigned(FSETMAIN) then Exit(False);
 
   try
-    DataPortSerial1.Close;
+    if DataPortSerial1.Active then
+      DataPortSerial1.Close;
   except end;
 
   try
-    DataPortSerial1.Port       := FSETMAIN.COMPORT;
-    DataPortSerial1.BaudRate   := BaudFromCode(FSETMAIN.BAUDRATE);
-    DataPortSerial1.DataBits   := DataBitsFromCode(FSETMAIN.DATABIT);
-    DataPortSerial1.Parity     := ParityCharFromCode(FSETMAIN.PARIDADE);
-    DataPortSerial1.StopBits   := StopBitsFromCode(FSETMAIN.STOPBIT);
+    DataPortSerial1.Port     := FSETMAIN.COMPORT;
+    DataPortSerial1.BaudRate := BaudFromCode(FSETMAIN.BAUDRATE);
+    DataPortSerial1.DataBits := DataBitsFromCode(FSETMAIN.DATABIT);
+    DataPortSerial1.Parity   := ParityCharFromCode(FSETMAIN.PARIDADE);
+    DataPortSerial1.StopBits := StopBitsFromCode(FSETMAIN.STOPBIT);
     // FlowControl mantém default (sfcNone), ajuste aqui se desejar
 
     if AReabrir then
@@ -277,7 +359,8 @@ begin
 end;
 
 function TdmBase.BuildUrl(const APath: string): string;
-var L, R: string;
+var
+  L, R: string;
 begin
   if FBaseUrl = '' then Exit(APath);
   L := FBaseUrl; R := APath;
@@ -309,45 +392,34 @@ end;
 
 function TdmBase.DevicesOpenAll: Boolean;
 begin
-  // 1ª tentativa: banco com coluna "id"
+  // JOIN explícito evita produto cartesiano e é portável
   Result := TryOpenDevicesWithSQL(
     zqrydevices,
-    'select id as id_device, nome, tipo, porta, dtcad from devices order by id'
+    'select d.*, t.* '+
+    'from devices d '+
+    'join tipo t on d.tipo = t.id_tipo '+
+    'order by d.nome'
   );
 
-  // 2ª tentativa: banco com coluna "id_device"
-  if not Result then
-    Result := TryOpenDevicesWithSQL(
-      zqrydevices,
-      'select id_device as id_device, nome, tipo, porta, dtcad from devices order by id_device'
-    );
-
-  // garante o DataSource
   if Result and (dsdevices.DataSet <> zqrydevices) then
     dsdevices.DataSet := zqrydevices;
 end;
 
 function TdmBase.DevicesSearchByName(const ANameLike: string): Boolean;
-var likeStr: string;
+var
+  likeStr: string;
 begin
   likeStr := '%' + ANameLike + '%';
 
-  // 1ª tentativa: esquema com "id"
   Result := TryOpenDevicesWithSQL(
     zqrydevices,
-    'select id as id_device, nome, tipo, porta, dtcad '+
-    'from devices where nome like :n order by nome',
+    'select d.*, t.* '+
+    'from devices d '+
+    'join tipo t on d.tipo = t.id_tipo '+
+    'where d.nome like :n '+
+    'order by d.nome',
     '', 0, 'n', likeStr
   );
-
-  // 2ª tentativa: esquema com "id_device"
-  if not Result then
-    Result := TryOpenDevicesWithSQL(
-      zqrydevices,
-      'select id_device as id_device, nome, tipo, porta, dtcad '+
-      'from devices where nome like :n order by nome',
-      '', 0, 'n', likeStr
-    );
 
   if Result and (dsdevices.DataSet <> zqrydevices) then
     dsdevices.DataSet := zqrydevices;
@@ -355,65 +427,60 @@ end;
 
 function TdmBase.DeviceFindById(const AId: Int64): Boolean;
 begin
-  // 1ª tentativa: coluna "id"
   Result := TryOpenDevicesWithSQL(
     zqrydevices,
-    'select id as id_device, nome, tipo, porta, dtcad '+
-    'from devices where id = :id limit 1',
+    'select d.*, t.* '+
+    'from devices d '+
+    'join tipo t on d.tipo = t.id_tipo '+
+    'where (d.id = :id or d.id_device = :id) '+
+    'limit 1',
     'id', AId
   );
-
-  // 2ª tentativa: coluna "id_device"
-  if not Result then
-    Result := TryOpenDevicesWithSQL(
-      zqrydevices,
-      'select id_device as id_device, nome, tipo, porta, dtcad '+
-      'from devices where id_device = :id limit 1',
-      'id', AId
-    );
 
   if Result and (dsdevices.DataSet <> zqrydevices) then
     dsdevices.DataSet := zqrydevices;
 end;
 
-function TdmBase.DeviceInsert(const ANome, APorta: string; ATipo: Integer; const AData: TDateTime): Int64;
+function TdmBase.DeviceInsert(): Int64;
 begin
   Result := -1;
-  // Insere só as colunas não-PK (independe se PK chama "id" ou "id_device")
-  zqryaux.Close;
-  zqryaux.SQL.Text :=
-    'insert into devices (nome, tipo, porta, dtcad) '+
-    'values (:nome, :tipo, :porta, :dtcad)';
-  zqryaux.ParamByName('nome').AsString     := ANome;
-  zqryaux.ParamByName('tipo').AsInteger    := ATipo;
-  zqryaux.ParamByName('porta').AsString    := APorta;
-  zqryaux.ParamByName('dtcad').AsDateTime  := AData;
-
   try
-    zqryaux.ExecSQL;
+    // Garante que o registro atual seja gravado
+    if tbldevices.State in [dsInsert, dsEdit] then
+      tbldevices.Post;
 
-    // pega o último ID (SQLite)
+    // Se estiver usando CachedUpdates, aplica agora
+    if tbldevices.CachedUpdates then
+      tbldevices.ApplyUpdates;
+
+    // Pega o último ID gerado (SQLite) na MESMA conexão
+    zqryaux.Close;
     zqryaux.SQL.Text := 'select last_insert_rowid() as id';
     zqryaux.Open;
     try
-      Result := zqryaux.FieldByName('id').AsLargeInt;
+      if not zqryaux.FieldByName('id').IsNull then
+        Result := zqryaux.FieldByName('id').AsLargeInt;
     finally
       zqryaux.Close;
     end;
 
-    // Atualiza lista em tela se estiver aberta
-    if zqrydevices.Active then
-      DevicesOpenAll;
+    // Refresh da lista padrão
+    DevicesOpenAll;
 
   except
-    // se quiser, logue o erro aqui
     Result := -1;
+    // (opcional) logar exceção
   end;
 end;
 
-function TdmBase.DeviceInsertNow(const ANome, APorta: string; ATipo: Integer): Int64;
+function TdmBase.DeviceInsertNow(): Int64;
 begin
-  Result := DeviceInsert(ANome, APorta, ATipo, Now);
+  // Preenche dtcad no registro ATUAL (sem parâmetros), se houver o campo
+  if tbldevices.State = dsInsert then
+    if tbldevices.FindField('dtcad') <> nil then
+      tbldevices.FieldByName('dtcad').AsDateTime := Now;
+
+  Result := DeviceInsert();
 end;
 
 
@@ -549,61 +616,6 @@ begin
     Result   := False;
   end;
 end;
-
-(*
-function TdmBase.TcpPostJsonText(const APath: string; const JsonBody: TJSONData; out AResponseText: string): Boolean;
-var
-  C: TFPHTTPClient;
-  Req, Resp: TStringStream;
-  Url: string;
-begin
-  Result := False;
-  AResponseText := '';
-  C := TFPHTTPClient.Create(nil);
-  Req := TStringStream.Create(JsonBody.AsJSON); // corpo JSON (UTF-8 por padrão no Lazarus)
-  Resp := TStringStream.Create('');             // para receber a resposta
-  try
-    C.AddHeader('Content-Type','application/json; charset=utf-8');
-    C.AddHeader('Accept','application/json, */*');
-    C.ConnectTimeout := FHttpTimeoutMs;
-    //C.ReadTimeout    := FHttpTimeoutMs;
-
-    Url := BuildUrl(APath);
-    try
-      // Post NÃO retorna string — grava em 'Resp'
-      C.Post(Url, Req, Resp);
-      AResponseText := Resp.DataString;
-      Result := True;
-    except
-      AResponseText := '';
-      Result := False;
-    end;
-  finally
-    Resp.Free;
-    Req.Free;
-    C.Free;
-  end;
-end;
-*)
-
-(*
-function TdmBase.TcpPostJson(const APath: string; const JsonBody: TJSONData; out JsonResp: TJSONData): Boolean;
-var
-  S: string;
-begin
-  JsonResp := nil;
-  if not TcpPostJsonText(APath, JsonBody, S) then Exit(False);
-  try
-    JsonResp := GetJSON(S);
-    Result := Assigned(JsonResp);
-    if Result and Assigned(FOnTcpJsonReceived) then
-      FOnTcpJsonReceived(Self, JsonResp);
-  except
-    JsonResp := nil;
-    Result   := False;
-  end;
-end;
-*)
 
 end.
 

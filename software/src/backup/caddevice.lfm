@@ -7,6 +7,7 @@ object frmcaddevice: Tfrmcaddevice
   ClientHeight = 437
   ClientWidth = 1109
   LCLVersion = '4.0.0.4'
+  OnShow = FormShow
   object Panel1: TPanel
     Left = 0
     Height = 120
@@ -33,6 +34,48 @@ object frmcaddevice: Tfrmcaddevice
       Options = []
       TabOrder = 0
     end
+    object Label4: TLabel
+      Left = 24
+      Height = 15
+      Top = 12
+      Width = 113
+      Caption = 'Nome do dispositivo:'
+    end
+    object edPesqNome: TEdit
+      Left = 24
+      Height = 23
+      Top = 33
+      Width = 248
+      TabOrder = 1
+    end
+    object Label5: TLabel
+      Left = 296
+      Height = 15
+      Top = 12
+      Width = 103
+      Caption = 'Tipo de Dispositivo:'
+    end
+    object cbPesquisaTipo: TComboBox
+      Left = 299
+      Height = 23
+      Top = 33
+      Width = 165
+      ItemHeight = 15
+      Items.Strings = (
+        'Serial'
+        'TCP/IP'
+      )
+      TabOrder = 2
+    end
+    object Button1: TButton
+      Left = 944
+      Height = 41
+      Top = 24
+      Width = 155
+      Anchors = [akTop, akRight]
+      Caption = 'Pesquisar'
+      TabOrder = 3
+    end
   end
   object Panel2: TPanel
     Left = 0
@@ -40,7 +83,18 @@ object frmcaddevice: Tfrmcaddevice
     Top = 120
     Width = 170
     Align = alLeft
+    ClientHeight = 317
+    ClientWidth = 170
     TabOrder = 1
+    object btCadastrar: TToggleBox
+      Left = 8
+      Height = 48
+      Top = 8
+      Width = 155
+      Caption = 'Cadastrar'
+      TabOrder = 0
+      OnChange = btCadastrarChange
+    end
   end
   object Panel3: TPanel
     Left = 175
@@ -56,11 +110,11 @@ object frmcaddevice: Tfrmcaddevice
       Height = 315
       Top = 1
       Width = 932
-      ActivePage = TabSheet1
+      ActivePage = tbPesquisa
       Align = alClient
       TabIndex = 0
       TabOrder = 0
-      object TabSheet1: TTabSheet
+      object tbPesquisa: TTabSheet
         Caption = 'Pesquisa'
         ClientHeight = 287
         ClientWidth = 924
@@ -78,36 +132,37 @@ object frmcaddevice: Tfrmcaddevice
             end          
             item
               Title.Caption = 'nome'
-              Width = 300
               FieldName = 'nome'
             end          
             item
-              Title.Caption = 'tipo'
-              FieldName = 'tipo'
+              Title.Caption = 'Tipo'
+              Width = 110
+              FieldName = 'descricao'
             end          
             item
-              Title.Caption = 'porta'
-              Width = 200
+              Title.Caption = 'Porta'
               FieldName = 'porta'
             end          
             item
               Title.Caption = 'dtcad'
-              Width = 250
               FieldName = 'dtcad'
             end>
           DataSource = dsdevices
           TabOrder = 0
         end
       end
-      object TabSheet2: TTabSheet
+      object tbEdit: TTabSheet
         Caption = 'Cadastro'
         ClientHeight = 287
         ClientWidth = 924
+        Enabled = False
         object dbnome: TDBEdit
           Left = 8
           Height = 23
           Top = 36
           Width = 224
+          DataField = 'nome'
+          DataSource = dscaddevices
           MaxLength = 0
           TabOrder = 0
         end
@@ -125,28 +180,44 @@ object frmcaddevice: Tfrmcaddevice
           Width = 26
           Caption = 'Tipo:'
         end
-        object DBComboBox1: TDBComboBox
-          Left = 8
-          Height = 23
-          Top = 88
-          Width = 168
-          DataField = 'tipo'
-          DataSource = dscaddevices
-          ItemHeight = 15
-          Items.Strings = (
-            'Serial'
-            'TCP'
-          )
-          MaxLength = 0
-          Style = csDropDownList
-          TabOrder = 1
-        end
         object Label3: TLabel
           Left = 8
           Height = 15
           Top = 120
           Width = 31
           Caption = 'Porta:'
+        end
+        object btSalvar: TButton
+          Left = 784
+          Height = 47
+          Top = 232
+          Width = 128
+          Caption = 'Salvar'
+          TabOrder = 1
+          OnClick = btSalvarClick
+        end
+        object btCancelar: TButton
+          Left = 624
+          Height = 47
+          Top = 232
+          Width = 128
+          Caption = 'Cancelar'
+          TabOrder = 2
+          OnClick = btCancelarClick
+        end
+        object DBComboBox1: TDBLookupComboBox
+          Left = 8
+          Height = 23
+          Top = 88
+          Width = 140
+          DataField = 'tipo'
+          DataSource = dscaddevices
+          KeyField = 'id_tipo'
+          ListField = 'descricao'
+          ListFieldIndex = 0
+          ListSource = dstipos
+          LookupCache = False
+          TabOrder = 3
         end
         object dbnome1: TDBEdit
           Left = 8
@@ -156,25 +227,7 @@ object frmcaddevice: Tfrmcaddevice
           DataField = 'porta'
           DataSource = dscaddevices
           MaxLength = 0
-          TabOrder = 2
-        end
-        object btSalvar: TButton
-          Left = 784
-          Height = 47
-          Top = 232
-          Width = 128
-          Caption = 'Salvar'
-          TabOrder = 3
-          OnClick = btSalvarClick
-        end
-        object btCancelar: TButton
-          Left = 624
-          Height = 47
-          Top = 232
-          Width = 128
-          Caption = 'Cancelar'
           TabOrder = 4
-          OnClick = btCancelarClick
         end
       end
     end
@@ -194,5 +247,10 @@ object frmcaddevice: Tfrmcaddevice
     DataSet = dmBase.tbldevices
     Left = 48
     Top = 266
+  end
+  object dstipos: TDataSource
+    DataSet = dmBase.tbltipos
+    Left = 368
+    Top = 224
   end
 end
