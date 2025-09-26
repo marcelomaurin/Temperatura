@@ -98,6 +98,9 @@ type
     function ListaPortasTipo2(out APortas: TStringList): Boolean;
     function ConsultaIPTempHum(const AIp: string; out AJson: TJSONData): Boolean;
 
+    function RegistraMedida(const AIdDevice: Int64; ATipoMedida: Integer;
+  const AValor: Double; const ADthrCad: TDateTime = 0): Int64;
+
   end;
 
 var
@@ -143,13 +146,23 @@ begin
 end;
 
 function TdmBase.ListaPortasTipo2(out APortas: TStringList): Boolean;
+var
+  porta: string;
+  idv:   Int64;
 begin
-  if Assigned(APortas) then APortas.Clear else APortas := TStringList.Create;
+  if Assigned(APortas) then
+    APortas.Clear
+  else
+    APortas := TStringList.Create;
+
+  // NÃO possuir os "objetos", pois não são objetos reais
+  APortas.OwnsObjects := False;
+
   Result := False;
 
   zqryaux.Close;
   zqryaux.SQL.Text :=
-    'select distinct porta '+
+    'select * '+
     'from devices '+
     'where tipo = :t '+
     '  and porta is not null '+
@@ -161,7 +174,12 @@ begin
     zqryaux.Open;
     while not zqryaux.EOF do
     begin
-      APortas.Add(zqryaux.FieldByName('porta').AsString);
+      porta := zqryaux.FieldByName('porta').AsString;
+      idv   := zqryaux.FieldByName('id_device').AsLargeInt;
+
+      // Texto = porta/IP; Objects[i] = Pointer com o id_device
+      APortas.AddObject(porta, TObject(PtrInt(idv)));
+
       zqryaux.Next;
     end;
     Result := (APortas.Count > 0);
@@ -169,6 +187,8 @@ begin
     // mantém Result=False
   end;
 end;
+
+
 
 
 function TdmBase.ConsultaIPTempHum(const AIp: string; out AJson: TJSONData): Boolean;
@@ -198,6 +218,54 @@ begin
       Exit(True)
     else
       FreeAndNil(AJson);
+  end;
+end;
+
+function TdmBase.RegistraMedida(const AIdDevice: Int64; ATipoMedida: Integer;
+  const AValor: Double; const ADthrCad: TDateTime): Int64;
+var
+  d: TDateTime;
+begin
+  Result := -1;
+
+  // Garantir conexão aberta
+  if (not ZConnection1.Connected) then
+  try
+    ZConnection1.Connect;
+  except
+    Exit; // não conectado -> sai com -1
+  end;
+
+  // Define data/hora
+  if ADthrCad > 0 then
+    d := ADthrCad
+  else
+    d := Now;
+
+  // INSERT parametrizado
+  zqryaux.Close;
+  zqryaux.SQL.Text :=
+    'insert into medidas (dthrcad, tipomedida, valor, id_device) '+
+    'values (:d, :t, :v, :iddev)';
+  try
+    zqryaux.ParamByName('d').AsDateTime    := d;
+    zqryaux.ParamByName('t').AsInteger     := ATipoMedida; // 0=temp, 1=humidade
+    zqryaux.ParamByName('v').AsFloat       := AValor;
+    zqryaux.ParamByName('iddev').AsLargeInt:= AIdDevice;
+    zqryaux.ExecSQL;
+
+    // Recupera o ID (SQLite)
+    zqryaux.SQL.Text := 'select last_insert_rowid() as id';
+    zqryaux.Open;
+    try
+      if not zqryaux.FieldByName('id').IsNull then
+        Result := zqryaux.FieldByName('id').AsLargeInt;
+    finally
+      zqryaux.Close;
+    end;
+
+  except
+    // mantém Result = -1
   end;
 end;
 

@@ -265,17 +265,30 @@ var
   J: TJSONData;
   tempVal, humVal: Double;
   o: TJSONObject;
+  DevId: Int64;
+  DevRef: TDeviceRef; // <--- usa o tipo exposto em base.pas
 begin
+  L := TStringList.Create;
   if not dmBase.ListaPortasTipo2(L) then
+  begin
+    L.Free;
     Exit;
+  end;
+
   try
     for i := 0 to L.Count - 1 do
     begin
-      // Cada item da lista é uma "porta" (no teu schema ela guarda o IP/host)
+      // Porta/IP é L[i]; id_device vem no Objects[i]
+      DevRef := TDeviceRef(L.Objects[i]);
+      if Assigned(DevRef) then
+        DevId := DevRef.IdDevice
+      else
+        DevId := -1;
+
       if dmBase.ConsultaIPTempHum(L[i], J) then
       try
-        tempVal := NaN;
-        humVal  := NaN;
+        tempVal := 0;
+        humVal  := 0;
 
         if (J <> nil) and (J.JSONType = jtObject) then
         begin
@@ -287,11 +300,20 @@ begin
         end;
 
         // Exemplo simples: atualiza a barra de status com o último IP/leituras
-        if (not IsNan(tempVal)) or (not IsNan(humVal)) then
+        if ((tempVal <> 0) and (humVal <> 0)) then
           StatusBar1.SimpleText :=
             Format('%s -> T=%.2f °C  H=%.2f %%', [L[i], tempVal, humVal])
         else
           StatusBar1.SimpleText := L[i] + ' -> JSON recebido (sem campos previstos)';
+
+        // --- Registrar em banco (tabela medidas) usando DevId do objeto ---
+        if DevId > 0 then
+        begin
+          if (tempVal <> 0) then
+            dmBase.RegistraMedida(DevId, 0, tempVal); // 0 = temperatura
+          if (humVal <> 0) then
+            dmBase.RegistraMedida(DevId, 1, humVal);  // 1 = humidade
+        end;
 
       finally
         J.Free;
@@ -302,9 +324,10 @@ begin
       end;
     end;
   finally
-    L.Free;
+    L.Free; // OwnsObjects=True em ListaPortasTipo2 garante liberar TDeviceRef
   end;
 end;
+
 
 
 end.
