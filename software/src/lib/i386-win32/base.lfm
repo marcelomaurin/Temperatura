@@ -61,8 +61,8 @@ object dmBase: TdmBase
   object tbldevices: TZTable
     Connection = ZConnection1
     TableName = 'devices'
-    Left = 85
-    Top = 216
+    Left = 152
+    Top = 162
     object tbldevicesnome: TZRawStringField
       FieldKind = fkData
       FieldName = 'nome'
@@ -114,5 +114,11 @@ object dmBase: TdmBase
     TableName = 'Tipo'
     Left = 352
     Top = 320
+  end
+  object zqrymedidas: TZQuery
+    Connection = ZConnection1
+    Params = <>
+    Left = 32
+    Top = 312
   end
 end

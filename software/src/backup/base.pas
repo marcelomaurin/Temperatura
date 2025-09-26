@@ -27,6 +27,7 @@ type
     tbltipos: TZTable;
     ZConnection1: TZConnection;
     zqryaux: TZQuery;
+    zqrymedidas: TZQuery;
     zqrydevices: TZQuery;
     tbldevices: TZTable;
     procedure DataModuleCreate(Sender: TObject);
@@ -162,9 +163,7 @@ begin
 
   zqryaux.Close;
   zqryaux.SQL.Text :=
-    'select distinct '+
-    '  coalesce(id_device, id) as id_device, '+
-    '  porta '+
+    'select * '+
     'from devices '+
     'where tipo = :t '+
     '  and porta is not null '+

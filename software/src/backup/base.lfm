@@ -115,4 +115,10 @@ object dmBase: TdmBase
     Left = 352
     Top = 320
   end
+  object zqrymedidas: TZQuery
+    Connection = ZConnection1
+    Params = <>
+    Left = 32
+    Top = 312
+  end
 end

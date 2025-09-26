@@ -93,6 +93,12 @@
         <HasResources Value="True"/>
         <ResourceBaseClass Value="Form"/>
       </Unit>
+      <Unit>
+        <Filename Value="medidas.pas"/>
+        <IsPartOfProject Value="True"/>
+        <ComponentName Value="frmmedidas"/>
+        <ResourceBaseClass Value="Form"/>
+      </Unit>
     </Units>
   </ProjectOptions>
   <CompilerOptions>

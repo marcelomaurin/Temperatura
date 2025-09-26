@@ -12,7 +12,7 @@
         <WindowIndex Value="-1"/>
         <TopLine Value="-1"/>
         <CursorPos X="-1" Y="-1"/>
-        <UsageCount Value="47"/>
+        <UsageCount Value="48"/>
       </Unit>
       <Unit>
         <Filename Value="main.pas"/>
@@ -21,8 +21,8 @@
         <HasResources Value="True"/>
         <ResourceBaseClass Value="Form"/>
         <TopLine Value="279"/>
-        <CursorPos X="34" Y="300"/>
-        <UsageCount Value="47"/>
+        <CursorPos X="17" Y="286"/>
+        <UsageCount Value="48"/>
         <Loaded Value="True"/>
         <LoadedDesigner Value="True"/>
       </Unit>
@@ -33,15 +33,15 @@
         <WindowIndex Value="-1"/>
         <TopLine Value="-1"/>
         <CursorPos X="-1" Y="-1"/>
-        <UsageCount Value="47"/>
+        <UsageCount Value="48"/>
       </Unit>
       <Unit>
         <Filename Value="setmain.pas"/>
         <IsPartOfProject Value="True"/>
-        <EditorIndex Value="7"/>
+        <EditorIndex Value="8"/>
         <TopLine Value="52"/>
         <CursorPos X="11" Y="76"/>
-        <UsageCount Value="47"/>
+        <UsageCount Value="48"/>
         <Loaded Value="True"/>
       </Unit>
       <Unit>
@@ -50,11 +50,10 @@
         <ComponentName Value="dmBase"/>
         <HasResources Value="True"/>
         <ResourceBaseClass Value="DataModule"/>
-        <IsVisibleTab Value="True"/>
-        <EditorIndex Value="3"/>
-        <TopLine Value="659"/>
-        <CursorPos X="16" Y="698"/>
-        <UsageCount Value="44"/>
+        <EditorIndex Value="4"/>
+        <TopLine Value="660"/>
+        <CursorPos Y="668"/>
+        <UsageCount Value="45"/>
         <Loaded Value="True"/>
         <LoadedDesigner Value="True"/>
       </Unit>
@@ -64,23 +63,23 @@
         <ComponentName Value="frmcaddevice"/>
         <HasResources Value="True"/>
         <ResourceBaseClass Value="Form"/>
-        <EditorIndex Value="2"/>
+        <EditorIndex Value="3"/>
         <TopLine Value="47"/>
         <CursorPos X="35" Y="78"/>
-        <UsageCount Value="35"/>
+        <UsageCount Value="36"/>
         <Loaded Value="True"/>
         <LoadedDesigner Value="True"/>
       </Unit>
       <Unit>
         <Filename Value="C:\Users\mmaurin\AppData\Local\lazarus\onlinepackagemanager\packages\DataPort\DataPortSerial.pas"/>
-        <EditorIndex Value="4"/>
+        <EditorIndex Value="5"/>
         <UsageCount Value="19"/>
         <Loaded Value="True"/>
         <DefaultSyntaxHighlighter Value="Delphi"/>
       </Unit>
       <Unit>
         <Filename Value="C:\Users\mmaurin\AppData\Local\lazarus\onlinepackagemanager\packages\DataPort\DataPortUART.pas"/>
-        <EditorIndex Value="6"/>
+        <EditorIndex Value="7"/>
         <TopLine Value="31"/>
         <CursorPos X="26" Y="48"/>
         <UsageCount Value="19"/>
@@ -89,7 +88,7 @@
       </Unit>
       <Unit>
         <Filename Value="C:\Users\mmaurin\AppData\Local\lazarus\onlinepackagemanager\packages\DataPort\DataPort.pas"/>
-        <EditorIndex Value="5"/>
+        <EditorIndex Value="6"/>
         <TopLine Value="52"/>
         <CursorPos X="14" Y="66"/>
         <UsageCount Value="19"/>
@@ -98,14 +97,26 @@
       </Unit>
       <Unit>
         <Filename Value="C:\Users\mmaurin\AppData\Local\lazarus\onlinepackagemanager\packages\industrialstuff\source\AdvLed.pas"/>
-        <EditorIndex Value="1"/>
+        <EditorIndex Value="2"/>
         <TopLine Value="3"/>
         <CursorPos X="33" Y="30"/>
         <UsageCount Value="13"/>
         <Loaded Value="True"/>
       </Unit>
+      <Unit>
+        <Filename Value="medidas.pas"/>
+        <IsPartOfProject Value="True"/>
+        <ComponentName Value="frmmedidas"/>
+        <ResourceBaseClass Value="Form"/>
+        <IsVisibleTab Value="True"/>
+        <EditorIndex Value="1"/>
+        <CursorPos Y="14"/>
+        <UsageCount Value="21"/>
+        <Loaded Value="True"/>
+        <LoadedDesigner Value="True"/>
+      </Unit>
     </Units>
-    <JumpHistory HistoryIndex="28">
+    <JumpHistory HistoryIndex="29">
       <Position>
         <Filename Value="base.pas"/>
         <Caret Line="161" TopLine="145"/>
@@ -221,6 +232,10 @@
       <Position>
         <Filename Value="base.pas"/>
         <Caret Line="693" Column="24" TopLine="659"/>
+      </Position>
+      <Position>
+        <Filename Value="base.pas"/>
+        <Caret Line="677" Column="50" TopLine="659"/>
       </Position>
     </JumpHistory>
     <RunParams>

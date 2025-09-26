@@ -27,6 +27,7 @@ type
     tbltipos: TZTable;
     ZConnection1: TZConnection;
     zqryaux: TZQuery;
+    zqrymedidas: TZQuery;
     zqrydevices: TZQuery;
     tbldevices: TZTable;
     procedure DataModuleCreate(Sender: TObject);
