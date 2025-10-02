@@ -6,9 +6,13 @@ interface
 
 uses
   Classes, SysUtils, Forms, Controls, Graphics, Dialogs, ExtCtrls,
-  PopupNotifier, ComCtrls, Menus, StdCtrls, AnchorDockPanel, UniqueInstance,
-  uplaysound, untsalesSwitch, DataPortSerial, DataPortHTTP, AdvLed, NiceSideBar,
-  base, setmain, caddevice,  fpjson, jsonparser; // <-- garantir estes na seção implementation uses;
+  PopupNotifier, ComCtrls, Menus, StdCtrls, DBCtrls, AnchorDockPanel,
+  UniqueInstance, uplaysound, untsalesSwitch, DataPortSerial, DataPortHTTP,
+  AdvLed, NiceSideBar, medidas, base, setmain, caddevice, fpjson, jsonparser,
+  DB, hint; // <-- garantir estes na seção implementation uses;
+
+Const
+  Versao =  '0.4';
 
 type
 
@@ -21,6 +25,8 @@ type
     HeaderControl1: THeaderControl;
     ImageList1: TImageList;
     Label1: TLabel;
+    Label2: TLabel;
+    lbversao: TLabel;
     MainMenu1: TMainMenu;
     MenuItem1: TMenuItem;
     MenuItem2: TMenuItem;
@@ -40,6 +46,7 @@ type
     Splitter1: TSplitter;
     StatusBar1: TStatusBar;
     tbStatus: TTabSheet;
+    Timer1: TTimer;
     tmProcessa: TTimer;
     tsSobre: TTabSheet;
     tvItem: TTreeView;
@@ -51,7 +58,9 @@ type
     procedure HeaderControl1SectionClick(HeaderControl: TCustomHeaderControl;
       Section: THeaderSection);
     procedure MenuItem2Click(Sender: TObject);
+    procedure MenuItem3Click(Sender: TObject);
     procedure MenuItem7Click(Sender: TObject);
+    procedure Timer1Timer(Sender: TObject);
     procedure tmProcessaStartTimer(Sender: TObject);
     procedure tmProcessaStopTimer(Sender: TObject);
     procedure tmProcessaTimer(Sender: TObject);
@@ -68,6 +77,7 @@ type
     procedure AdicionaDevices;
     procedure VerreDevices();
     procedure chamarTipo2;
+    procedure ChamaMedidas();
   end;
 
 var
@@ -84,6 +94,9 @@ begin
   // Carrega/gera configurações (srvtemp.cfg) via TSetMain
   FSETMAIN := TSetMain.Create;
   FSETMAIN.CarregaContexto;
+  lbversao.Caption:= Versao;
+
+  frmhint := tfrmhint.create(self);
 
   // DataModule da aplicação
   dmBase := TdmBase.Create(Self);
@@ -105,6 +118,7 @@ procedure Tfrmmain.FormDestroy(Sender: TObject);
 begin
     // Persiste e libera as configurações
   FreeAndNil(FSETMAIN);
+  FreeAndNil(frmhint);
   // dmBase será liberado automaticamente por ter Owner = Self
 end;
 
@@ -120,7 +134,8 @@ begin
   end;
   if(Section.OriginalIndex=1) then
   begin
-     //Medidas
+     ChamaMedidas();
+
   end;
   if(Section.OriginalIndex=2) then
   begin
@@ -137,11 +152,41 @@ begin
   Close;
 end;
 
+procedure Tfrmmain.MenuItem3Click(Sender: TObject);
+begin
+
+end;
+
 procedure Tfrmmain.MenuItem7Click(Sender: TObject);
 begin
   CadEquipamentos();
   AdicionaDevices;
 end;
+
+procedure Tfrmmain.Timer1Timer(Sender: TObject);
+var
+  sClock, sConn, sHint: string;
+begin
+
+
+  sClock := FormatDateTime('dd/mm/yyyy hh:nn:ss', Now);
+  if StatusBar1.Panels[0].Text <> sClock then
+    StatusBar1.Panels[0].Text := sClock;
+
+  if Assigned(dmbase) and Assigned(dmbase.ZConnection1) and dmbase.ZConnection1.Connected then
+    sConn := 'Banco Conectado'
+  else
+    sConn := 'Banco Desconectado';
+
+  if StatusBar1.Panels[1].Text <> sConn then
+    StatusBar1.Panels[1].Text := sConn;
+
+  sHint := Application.Hint;
+  if StatusBar1.Panels[2].Text <> sHint then
+    StatusBar1.Panels[2].Text := sHint;
+end;
+
+
 
 procedure Tfrmmain.tmProcessaStartTimer(Sender: TObject);
 begin
@@ -159,6 +204,7 @@ begin
   AdvLed1.State:=lsOn;
   AdvLed1.Blink:=false;
   VerreDevices();
+  application.ProcessMessages;
 end;
 
 procedure Tfrmmain.Inicializar;
@@ -326,6 +372,16 @@ begin
   finally
     L.Free; // seguro, pois OwnsObjects=False
   end;
+end;
+
+procedure Tfrmmain.ChamaMedidas();
+begin
+  if (frmmedidas = nil) then
+  begin
+   frmmedidas := Tfrmmedidas.create(self);
+  end;
+  frmmedidas.show();
+
 end;
 
 

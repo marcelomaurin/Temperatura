@@ -96,7 +96,17 @@ object frmmain: Tfrmmain
       Height = 23
       Top = 26
       Width = 908
-      Panels = <>
+      Panels = <      
+        item
+          Width = 100
+        end      
+        item
+          Width = 100
+        end      
+        item
+          Width = 300
+        end>
+      SimplePanel = False
     end
   end
   object Panel4: TPanel
@@ -113,12 +123,28 @@ object frmmain: Tfrmmain
       Height = 520
       Top = 1
       Width = 708
-      ActivePage = tbStatus
+      ActivePage = tsSobre
       Align = alClient
-      TabIndex = 1
+      TabIndex = 0
       TabOrder = 0
       object tsSobre: TTabSheet
         Caption = 'Sobre'
+        ClientHeight = 492
+        ClientWidth = 700
+        object Label2: TLabel
+          Left = 268
+          Height = 15
+          Top = 69
+          Width = 134
+          Caption = 'Controle de Temperatura '
+        end
+        object lbversao: TLabel
+          Left = 314
+          Height = 15
+          Top = 155
+          Width = 44
+          Caption = 'lbversao'
+        end
       end
       object tbStatus: TTabSheet
         Caption = 'Status'
@@ -133,6 +159,7 @@ object frmmain: Tfrmmain
         object btVarredura: TButton
           Left = 31
           Height = 37
+          Hint = 'Iniciar programa de monitoramento'
           Top = 144
           Width = 123
           Caption = 'Iniciar varredura'
@@ -143,12 +170,13 @@ object frmmain: Tfrmmain
           Left = 141
           Height = 15
           Top = 62
-          Width = 50
-          Caption = 'Verredura'
+          Width = 53
+          Caption = 'Varredura '
         end
         object btVarredura1: TButton
           Left = 176
           Height = 37
+          Hint = 'Parar programa de monitoramento'
           Top = 144
           Width = 123
           Caption = 'Parar Varredura'
@@ -208,9 +236,12 @@ object frmmain: Tfrmmain
       Caption = 'Arquivo'
       object MenuItem3: TMenuItem
         Caption = 'Configurações'
+        Hint = 'Configurações do sistema'
+        OnClick = MenuItem3Click
       end
       object MenuItem2: TMenuItem
         Caption = 'Sair'
+        Hint = 'Sair do programa'
         OnClick = MenuItem2Click
       end
     end
@@ -218,6 +249,7 @@ object frmmain: Tfrmmain
       Caption = 'Cadastros'
       object MenuItem7: TMenuItem
         Caption = 'Equipamento'
+        Hint = 'Cadastro de Equipamento'
         OnClick = MenuItem7Click
       end
     end
@@ -307,11 +339,16 @@ object frmmain: Tfrmmain
   end
   object tmProcessa: TTimer
     Enabled = False
-    Interval = 10000
+    Interval = 60000
     OnTimer = tmProcessaTimer
     OnStartTimer = tmProcessaStartTimer
     OnStopTimer = tmProcessaStopTimer
     Left = 728
     Top = 122
+  end
+  object Timer1: TTimer
+    OnTimer = Timer1Timer
+    Left = 294
+    Top = 272
   end
 end

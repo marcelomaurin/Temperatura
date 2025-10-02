@@ -26,6 +26,15 @@
     </RunParams>
     <RequiredPackages>
       <Item>
+        <PackageName Value="TAChartLazarusPkg"/>
+      </Item>
+      <Item>
+        <PackageName Value="rxnew"/>
+      </Item>
+      <Item>
+        <PackageName Value="NiceChartLaz"/>
+      </Item>
+      <Item>
         <PackageName Value="industrial"/>
       </Item>
       <Item>
@@ -97,6 +106,13 @@
         <Filename Value="medidas.pas"/>
         <IsPartOfProject Value="True"/>
         <ComponentName Value="frmmedidas"/>
+        <HasResources Value="True"/>
+        <ResourceBaseClass Value="Form"/>
+      </Unit>
+      <Unit>
+        <Filename Value="hint.pas"/>
+        <IsPartOfProject Value="True"/>
+        <ComponentName Value="frmHint"/>
         <ResourceBaseClass Value="Form"/>
       </Unit>
     </Units>

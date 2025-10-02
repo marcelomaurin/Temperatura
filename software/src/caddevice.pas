@@ -6,7 +6,7 @@ interface
 
 uses
   Classes, SysUtils, Forms, Controls, Graphics, Dialogs, ExtCtrls, ComCtrls,
-  DBCtrls, DBGrids, StdCtrls, base, setmain, DB;
+  DBCtrls, DBGrids, StdCtrls, base, setmain, DB, csvdataset;
 
 type
 
@@ -16,7 +16,9 @@ type
     btSalvar: TButton;
     btCancelar: TButton;
     Button1: TButton;
+    Button2: TButton;
     cbPesquisaTipo: TComboBox;
+    CSVDataset1: TCSVDataset;
     DBComboBox1: TDBLookupComboBox;
     dbnome: TDBEdit;
     dbnome1: TDBEdit;

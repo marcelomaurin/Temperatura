@@ -1,7 +1,7 @@
 object frmcaddevice: Tfrmcaddevice
-  Left = 472
+  Left = 508
   Height = 437
-  Top = 193
+  Top = 203
   Width = 1109
   Caption = 'frmcaddevice'
   ClientHeight = 437
@@ -94,6 +94,14 @@ object frmcaddevice: Tfrmcaddevice
       Caption = 'Cadastrar'
       TabOrder = 0
       OnChange = btCadastrarChange
+    end
+    object Button2: TButton
+      Left = 8
+      Height = 49
+      Top = 248
+      Width = 155
+      Caption = 'Exportar'
+      TabOrder = 1
     end
   end
   object Panel3: TPanel
@@ -252,5 +260,17 @@ object frmcaddevice: Tfrmcaddevice
     DataSet = dmBase.tbltipos
     Left = 368
     Top = 224
+  end
+  object CSVDataset1: TCSVDataset
+    FieldDefs = <>
+    CSVOptions.FirstLineAsFieldNames = False
+    CSVOptions.DefaultFieldLength = 255
+    CSVOptions.Delimiter = ','
+    CSVOptions.QuoteChar = '"'
+    CSVOptions.LineEnding = #13#10
+    CSVOptions.IgnoreOuterWhitespace = False
+    CSVOptions.QuoteOuterWhitespace = True
+    Left = 530
+    Top = 32
   end
 end

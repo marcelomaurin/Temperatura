@@ -10,8 +10,8 @@ uses
   athreads,
   {$ENDIF}
   Interfaces, // this includes the LCL widgetset
-  Forms, zcomponent, anchordockpkg, main, funcoes, setmain, base, caddevice,
-  medidas
+  Forms, rxnew, zcomponent, anchordockpkg, tachartlazaruspkg, main, funcoes,
+  setmain, base, caddevice, medidas, hint
   { you can add units after this };
 
 {$R *.res}

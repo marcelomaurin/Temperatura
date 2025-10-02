@@ -6,7 +6,7 @@ interface
 
 uses
   Classes, SysUtils, StrUtils, ZConnection, ZDataset, ZAbstractRODataset,
-  DataPortSerial, DataPortHTTP,
+  DataPortSerial, DataPortHTTP, DateUtils,
   fphttpclient, opensslsockets, fpjson, jsonparser, DB,
   setmain, DataPortUART;
 
@@ -102,6 +102,10 @@ type
     function RegistraMedida(const AIdDevice: Int64; ATipoMedida: Integer;
   const AValor: Double; const ADthrCad: TDateTime = 0): Int64;
 
+    function BuscaMedidas(const AIdDevice: integer;
+      const ADataInicio, ADataFim: TDateTime): Boolean;
+    function BuscaDeviceIdPorNome(const ANome: string): Int64;
+
   end;
 
 var
@@ -112,6 +116,28 @@ implementation
 {$R *.lfm}
 
 { TdmBase }
+
+function TdmBase.BuscaDeviceIdPorNome(const ANome: string): Int64;
+begin
+  Result := 0; // valor padrão se não achar
+
+  zqryaux.Close;
+  zqryaux.SQL.Text :=
+    'select id_device '+
+    'from devices '+
+    'where nome = :n '+
+    'limit 1';
+  zqryaux.ParamByName('n').AsString := ANome;
+
+  try
+    zqryaux.Open;
+    if not zqryaux.IsEmpty then
+      Result := zqryaux.FieldByName('id_device').AsLargeInt;
+  except
+    Result := 0;
+  end;
+end;
+
 
 function TdmBase.BuscaDevices(const AFiltro: string): Boolean;
 begin
@@ -531,6 +557,43 @@ begin
   if Result and (dsdevices.DataSet <> zqrydevices) then
     dsdevices.DataSet := zqrydevices;
 end;
+
+function TdmBase.BuscaMedidas(const AIdDevice: integer;
+  const ADataInicio, ADataFim: TDateTime): Boolean;
+var
+  HasIni, HasFim: Boolean;
+begin
+  // Considera datas válidas quando > 0 (DateTime não nulo)
+  HasIni := ADataInicio > 0;
+  HasFim := ADataFim    > 0;
+
+  zqrymedidas.Close;
+  zqrymedidas.SQL.Text :=
+    'select m.* '+
+    'from medidas m '+
+    'where ( (m.id_device = :p_id_device) ) '+
+    '  and ( (m.dthrcad >= :p_ini) ) '+
+    '  and ( (m.dthrcad <= :p_fim) ) '+
+   // '  and m.tipomedida = 0 '+
+    'order by m.dthrcad';
+
+  // Parâmetros
+  zqrymedidas.ParamByName('p_id_device').AsLargeInt := AIdDevice;
+
+
+
+
+  zqrymedidas.ParamByName('p_ini').AsDateTime := StartOfTheDay(ADataInicio);
+
+
+
+  zqrymedidas.ParamByName('p_fim').AsDateTime := EndOfTheDay(ADataFim);
+
+
+  zqrymedidas.Open;
+  Result := not zqrymedidas.IsEmpty;
+end;
+
 
 function TdmBase.DeviceInsert(): Int64;
 begin
