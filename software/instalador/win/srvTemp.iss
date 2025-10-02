@@ -2,16 +2,15 @@
 ; SEE THE DOCUMENTATION FOR DETAILS ON CREATING INNO SETUP SCRIPT FILES!
 
 #define MyAppName "srvTemp"
-#define MyAppVersion "0.3"
+#define MyAppVersion "0.4"
 #define MyAppPublisher "MAURINSOFT"
 #define MyAppURL "http://maurinsoft.com.br"
-#define MyAppExeName "srvTemp.exe"
+; O executável instalado é Temperatura.exe (mantido coerente com [Files])
+#define MyAppExeName "Temperatura.exe"
 
 [Setup]
-; NOTE: The value of AppId uniquely identifies this application.
-; Do not use the same AppId value in installers for other applications.
-; (To generate a new GUID, click Tools | Generate GUID inside the IDE.)
-AppId={{25E22926-C829-4F42-B173-8912FF91F4D2}
+; Identificador único da aplicação
+AppId={{25E22926-C829-4F42-B173-8912FF91F4D2}}
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}
 ;AppVerName={#MyAppName} {#MyAppVersion}
@@ -19,13 +18,18 @@ AppPublisher={#MyAppPublisher}
 AppPublisherURL={#MyAppURL}
 AppSupportURL={#MyAppURL}
 AppUpdatesURL={#MyAppURL}
-DefaultDirName={pf}\{#MyAppName}
+
+; Instala em Program Files (auto escolhe x86/x64 adequado)
+DefaultDirName={autopf}\{#MyAppName}
 DisableProgramGroupPage=yes
-OutputBaseFilename=srvTemp_setup_03
+OutputBaseFilename=srvTemp_setup_04
 Compression=lzma
 SolidCompression=yes
+UninstallDisplayIcon={app}\{#MyAppExeName}
+UsePreviousAppDir=yes
 
- 
+; Necessário para criar atalho em {commonstartup} e gravar em C:\db
+PrivilegesRequired=admin
 
 [Languages]
 Name: "brazilianportuguese"; MessagesFile: "compiler:Languages\BrazilianPortuguese.isl"
@@ -33,56 +37,34 @@ Name: "brazilianportuguese"; MessagesFile: "compiler:Languages\BrazilianPortugue
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
 
-
 [Types]
-;Name: "Elgin"; Description:  {cm:T_Elgin}
-;Name: "Pos58"; Description: {cm:T_Pos58}
-;Name: "Pos5811"; Description: {cm:T_Pos5811}
 Name: "srvTemp"; Description: {cm:T_srvTemp}
 
 [Components]
 Name: "srvTemp"; Description: "Arquivos do srvTemp"; Types: srvTemp;
-;Name: "Elgin"; Description: "Instalação do Fila com Elgin"; Types:  Fila  Elgin;
-;Name: "Pos58"; Description: "Instalação do Fila com POS58"; Types:  Fila Pos58;
-;Name: "Pos5811"; Description: "Instalação do Fila com POS5811"; Types:  Fila Pos5811;
-
 
 [CustomMessages]
-;T_Elgin=Elgin
-;TD_Elgin=Instalação padrão do fila com drivers do Elgin i9
-;T_Pos58=Pos
-;TD_Pos58=Instalação padrão do fila com drivers do Pos58
-;T_Pos5811=Pos
-;TD_Pos5811=Instalação padrão do fila com drivers do Pos5811
 T_srvTemp=srvTemp
-TD_srvTemp=Install demo to srvTemp 
+TD_srvTemp=Install demo to srvTemp
 
-; [Setup], [Files] etc sections go here
-[Code]
-//#define MSIDT_CustomType "Whatever"
-//#include "DescriptiveTypes.isi"
-//procedure InitializeWizard();
-//begin
-// InitializeDescriptiveTypes();
-//end;
-
-
+[Dirs]
+; Cria C:\db com permissão de modificação para usuários e não remove no uninstall
+Name: "C:\db"; Permissions: users-modify; Flags: uninsneveruninstall
 
 [Files]
-Source: "D:\projetos\maurinsoft\temperatura\software\src\srvTemp.exe"; DestDir: "{app}"; Flags: ignoreversion
-;Source: "D:\projetos\maurinsoft\fila\cliente.cfg"; DestDir: "{app}"; 
-;Source: "D:\projetos\maurinsoft\fila\drivers\Elgin i9\ELGIN Printer Driver_v-1.6.6.exe"; DestDir: "{app}"; Components: Elgin ;
-;Source: "D:\projetos\maurinsoft\fila\drivers\POS58\POS Printer Driver Setup .exe"; DestDir: "{app}"; Components: Pos58;
-;Source: "D:\projetos\maurinsoft\fila\drivers\POS5811-DD\POS Printer Driver Setup .exe"; DestDir: "{app}"; Components: Pos5811;
-; NOTE: Don't use "Flags: ignoreversion" on any shared system files
+; Executável principal
+Source: "D:\projetos\maurinsoft\Temperatura\software\src\Temperatura.exe"; DestDir: "{app}"; Flags: ignoreversion
+; Banco de dados: copia para C:\db, não sobrescreve se já existir, e não remove no uninstall
+Source: "D:\projetos\maurinsoft\Temperatura\software\db\temperatura.db"; DestDir: "C:\db"; Flags: onlyifdoesntexist uninsneveruninstall ignoreversion
 
 [Icons]
+; Menu Iniciar
 Name: "{commonprograms}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
+; Área de trabalho (opcional via tarefa)
 Name: "{commondesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
+; Iniciar com o Windows (todos os usuários, após login)
+Name: "{commonstartup}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
 
 [Run]
-;Filename: "{app}\ELGIN Printer Driver_v-1.6.6.exe"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Components: Elgin;
-;Filename: "{app}\POS Printer Driver Setup .exe"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Components: Pos58; 
-;Filename: "{app}\POS Printer Driver Setup .exe"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Components: Pos5811; 
+; Executa o app ao final da instalação
 Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent
-
