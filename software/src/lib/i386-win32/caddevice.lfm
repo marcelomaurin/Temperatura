@@ -1,12 +1,13 @@
 object frmcaddevice: Tfrmcaddevice
-  Left = 472
+  Left = 508
   Height = 437
-  Top = 193
+  Top = 203
   Width = 1109
   Caption = 'frmcaddevice'
   ClientHeight = 437
   ClientWidth = 1109
   LCLVersion = '4.0.0.4'
+  OnCreate = FormCreate
   OnShow = FormShow
   object Panel1: TPanel
     Left = 0
@@ -18,7 +19,7 @@ object frmcaddevice: Tfrmcaddevice
     ClientWidth = 1109
     TabOrder = 0
     object DBNavigator1: TDBNavigator
-      Left = 488
+      Left = 176
       Height = 25
       Top = 88
       Width = 241
@@ -33,6 +34,7 @@ object frmcaddevice: Tfrmcaddevice
       ClientWidth = 241
       Options = []
       TabOrder = 0
+      VisibleButtons = [nbFirst, nbPrior, nbNext, nbLast, nbRefresh]
     end
     object Label4: TLabel
       Left = 24
@@ -76,6 +78,15 @@ object frmcaddevice: Tfrmcaddevice
       Caption = 'Pesquisar'
       TabOrder = 3
     end
+    object btNovo: TButton
+      Left = 432
+      Height = 34
+      Top = 80
+      Width = 99
+      Caption = 'Novo'
+      TabOrder = 4
+      OnClick = btNovoClick
+    end
   end
   object Panel2: TPanel
     Left = 0
@@ -94,6 +105,23 @@ object frmcaddevice: Tfrmcaddevice
       Caption = 'Cadastrar'
       TabOrder = 0
       OnChange = btCadastrarChange
+    end
+    object Button2: TButton
+      Left = 8
+      Height = 49
+      Top = 248
+      Width = 155
+      Caption = 'Exportar'
+      TabOrder = 1
+    end
+    object btEditar: TButton
+      Left = 8
+      Height = 50
+      Top = 72
+      Width = 155
+      Caption = 'Editar'
+      TabOrder = 2
+      OnClick = btEditarClick
     end
   end
   object Panel3: TPanel
@@ -135,11 +163,6 @@ object frmcaddevice: Tfrmcaddevice
               FieldName = 'nome'
             end          
             item
-              Title.Caption = 'Tipo'
-              Width = 110
-              FieldName = 'descricao'
-            end          
-            item
               Title.Caption = 'Porta'
               FieldName = 'porta'
             end          
@@ -148,6 +171,7 @@ object frmcaddevice: Tfrmcaddevice
               FieldName = 'dtcad'
             end>
           DataSource = dsdevices
+          ReadOnly = True
           TabOrder = 0
         end
       end
@@ -245,12 +269,26 @@ object frmcaddevice: Tfrmcaddevice
   end
   object dscaddevices: TDataSource
     DataSet = dmBase.tbldevices
-    Left = 48
-    Top = 266
+    Left = 448
+    Top = 224
   end
   object dstipos: TDataSource
     DataSet = dmBase.tbltipos
+    OnStateChange = dstiposStateChange
+    OnDataChange = dstiposDataChange
     Left = 368
     Top = 224
+  end
+  object CSVDataset1: TCSVDataset
+    FieldDefs = <>
+    CSVOptions.FirstLineAsFieldNames = False
+    CSVOptions.DefaultFieldLength = 255
+    CSVOptions.Delimiter = ','
+    CSVOptions.QuoteChar = '"'
+    CSVOptions.LineEnding = #13#10
+    CSVOptions.IgnoreOuterWhitespace = False
+    CSVOptions.QuoteOuterWhitespace = True
+    Left = 530
+    Top = 32
   end
 end

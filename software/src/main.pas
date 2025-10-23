@@ -9,10 +9,10 @@ uses
   PopupNotifier, ComCtrls, Menus, StdCtrls, DBCtrls, AnchorDockPanel,
   UniqueInstance, uplaysound, untsalesSwitch, DataPortSerial, DataPortHTTP,
   AdvLed, NiceSideBar, medidas, base, setmain, caddevice, fpjson, jsonparser,
-  DB, hint; // <-- garantir estes na seção implementation uses;
+  DB, hint, configuracoes; // <-- garantir estes na seção implementation uses;
 
 Const
-  Versao =  '0.4';
+  Versao =  '0.5';
 
 type
 
@@ -28,6 +28,7 @@ type
     Label2: TLabel;
     lbversao: TLabel;
     MainMenu1: TMainMenu;
+    meLog: TMemo;
     MenuItem1: TMenuItem;
     MenuItem2: TMenuItem;
     MenuItem3: TMenuItem;
@@ -35,6 +36,7 @@ type
     MenuItem5: TMenuItem;
     MenuItem6: TMenuItem;
     MenuItem7: TMenuItem;
+    MenuItem8: TMenuItem;
     PageControl1: TPageControl;
     Panel1: TPanel;
     Panel2: TPanel;
@@ -45,6 +47,7 @@ type
     PopupNotifier1: TPopupNotifier;
     Splitter1: TSplitter;
     StatusBar1: TStatusBar;
+    tsLog: TTabSheet;
     tbStatus: TTabSheet;
     Timer1: TTimer;
     tmProcessa: TTimer;
@@ -60,6 +63,7 @@ type
     procedure MenuItem2Click(Sender: TObject);
     procedure MenuItem3Click(Sender: TObject);
     procedure MenuItem7Click(Sender: TObject);
+    procedure MenuItem8Click(Sender: TObject);
     procedure Timer1Timer(Sender: TObject);
     procedure tmProcessaStartTimer(Sender: TObject);
     procedure tmProcessaStopTimer(Sender: TObject);
@@ -70,14 +74,18 @@ type
     procedure Inicializar;
     procedure Arvore_Reset;
 
+
   public
     // Adiciona um device sob o nó "Devices" e vincula um ponteiro ao Node.Data
     function AdicionaDevice(const ANome: string; APtr: Pointer): TTreeNode;
     procedure CadEquipamentos();
     procedure AdicionaDevices;
     procedure VerreDevices();
+    procedure chamarTipo1;
     procedure chamarTipo2;
     procedure ChamaMedidas();
+    procedure Configuracoes();
+    procedure RegistraLog(info : string);
   end;
 
 var
@@ -154,13 +162,18 @@ end;
 
 procedure Tfrmmain.MenuItem3Click(Sender: TObject);
 begin
-
+  Configuracoes();
 end;
 
 procedure Tfrmmain.MenuItem7Click(Sender: TObject);
 begin
   CadEquipamentos();
   AdicionaDevices;
+end;
+
+procedure Tfrmmain.MenuItem8Click(Sender: TObject);
+begin
+     ChamaMedidas();
 end;
 
 procedure Tfrmmain.Timer1Timer(Sender: TObject);
@@ -219,12 +232,20 @@ begin
 
   // Cria o nó raiz "Devices" e guarda a referência
   FNodeDevices := tvItem.Items.Add(nil, 'Devices');
+  FNodeDevices.ImageIndex:=4;
   // (Opcional) Deixa o nó aberto
   if Assigned(FNodeDevices) then
     FNodeDevices.Expand(False);
 end;
 
+procedure Tfrmmain.RegistraLog(info: string);
+begin
+  meLog.Append(datetimetostr(now)+' '+info);
+end;
+
 function Tfrmmain.AdicionaDevice(const ANome: string; APtr: Pointer): TTreeNode;
+var
+  item : TTreeNode;
 begin
   // Garante que o nó "Devices" exista
   if (FNodeDevices = nil) then
@@ -236,7 +257,9 @@ begin
 
 
   // Cria o nó filho com o nome do device
-  Result := tvItem.Items.AddChild(FNodeDevices, ANome);
+  item := tvItem.Items.AddChild(FNodeDevices, ANome);
+  item.ImageIndex:=1;
+  result := item;
 
   // Vincula o ponteiro ao node (recuperável depois via Node.Data)
   if Assigned(Result) then
@@ -265,6 +288,7 @@ begin
   if (FNodeDevices = nil) then
   begin
     FNodeDevices := tvItem.Items.Add(nil, 'Devices');
+    FNodeDevices.ImageIndex:=4;
     if Assigned(FNodeDevices) then
       FNodeDevices.Expand(False);
   end;
@@ -285,6 +309,7 @@ begin
 
     // Cria nó como FILHO de FNodeDevices
     N := tvItem.Items.AddChild(FNodeDevices, DevNome);
+    n.ImageIndex:= 1;
 
     // Armazena o ID no nó:
     // OBS: TTreeNode no Lazarus NÃO tem Tag; usamos Data (Pointer) com cast seguro.
@@ -301,7 +326,55 @@ end;
 
 procedure Tfrmmain.VerreDevices();
 begin
-   chamarTipo2;
+   chamarTipo1;
+   //chamarTipo2;
+end;
+
+procedure Tfrmmain.chamarTipo1;
+var
+  L: TStringList;
+  i: Integer;
+  J: TJSONData;
+  tempVal, humVal: Double;
+  o: TJSONObject;
+  DevId: Int64;
+  porta : string;
+begin
+  L := TStringList.Create;
+  if not dmBase.ListaPortasTipo1(L) then
+  begin
+    L.Free;
+    Exit;
+  end;
+  if(L.Count >1) then
+  begin
+    ShowMessage('Só pode existir um device serial!');
+    tmProcessa.Enabled:=false;
+    L.free;
+    Exit;
+  end;
+
+  try
+    for i := 0 to L.Count - 1 do
+    begin
+      // id_device vem em Objects[i] como Pointer -> PtrInt
+      if Assigned(L.Objects[i]) then
+        DevId := PtrInt(L.Objects[i])
+      else
+        DevId := -1;
+
+      dmbase.serialdevid:= DevID;
+
+      porta := dmBase.GetIDPorta(DevID);
+      if(not dmbase.LazSerial1.Active) then
+      begin
+        dmbase.LazSerial1.Device:= porta;
+        dmbase.AtualizaConSerial(true);
+      end;
+    end;
+  finally
+    L.Free; // seguro, pois OwnsObjects=False
+  end;
 end;
 
 procedure Tfrmmain.chamarTipo2;
@@ -382,6 +455,14 @@ begin
   end;
   frmmedidas.show();
 
+end;
+
+procedure Tfrmmain.Configuracoes();
+begin
+   frmConfiguracoes := TfrmConfiguracoes.Create(self);
+   frmConfiguracoes.showmodal;
+   frmConfiguracoes.free;
+   frmConfiguracoes := nil;
 end;
 
 

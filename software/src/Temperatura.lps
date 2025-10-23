@@ -12,7 +12,7 @@
         <WindowIndex Value="-1"/>
         <TopLine Value="-1"/>
         <CursorPos X="-1" Y="-1"/>
-        <UsageCount Value="119"/>
+        <UsageCount Value="140"/>
       </Unit>
       <Unit>
         <Filename Value="main.pas"/>
@@ -20,10 +20,9 @@
         <ComponentName Value="frmmain"/>
         <HasResources Value="True"/>
         <ResourceBaseClass Value="Form"/>
-        <IsVisibleTab Value="True"/>
-        <TopLine Value="146"/>
-        <CursorPos X="3" Y="157"/>
-        <UsageCount Value="119"/>
+        <TopLine Value="409"/>
+        <CursorPos X="34" Y="432"/>
+        <UsageCount Value="140"/>
         <Loaded Value="True"/>
         <LoadedDesigner Value="True"/>
       </Unit>
@@ -34,15 +33,15 @@
         <WindowIndex Value="-1"/>
         <TopLine Value="-1"/>
         <CursorPos X="-1" Y="-1"/>
-        <UsageCount Value="119"/>
+        <UsageCount Value="140"/>
       </Unit>
       <Unit>
         <Filename Value="setmain.pas"/>
         <IsPartOfProject Value="True"/>
-        <EditorIndex Value="11"/>
-        <TopLine Value="52"/>
-        <CursorPos X="11" Y="76"/>
-        <UsageCount Value="119"/>
+        <EditorIndex Value="9"/>
+        <TopLine Value="158"/>
+        <CursorPos Y="249"/>
+        <UsageCount Value="140"/>
         <Loaded Value="True"/>
       </Unit>
       <Unit>
@@ -51,10 +50,10 @@
         <ComponentName Value="dmBase"/>
         <HasResources Value="True"/>
         <ResourceBaseClass Value="DataModule"/>
-        <EditorIndex Value="7"/>
-        <TopLine Value="723"/>
-        <CursorPos X="29" Y="735"/>
-        <UsageCount Value="116"/>
+        <EditorIndex Value="8"/>
+        <TopLine Value="824"/>
+        <CursorPos Y="876"/>
+        <UsageCount Value="137"/>
         <Loaded Value="True"/>
         <LoadedDesigner Value="True"/>
       </Unit>
@@ -64,9 +63,10 @@
         <ComponentName Value="frmcaddevice"/>
         <HasResources Value="True"/>
         <ResourceBaseClass Value="Form"/>
-        <EditorIndex Value="6"/>
-        <CursorPos X="31" Y="25"/>
-        <UsageCount Value="107"/>
+        <EditorIndex Value="7"/>
+        <TopLine Value="87"/>
+        <CursorPos Y="127"/>
+        <UsageCount Value="128"/>
         <Loaded Value="True"/>
         <LoadedDesigner Value="True"/>
       </Unit>
@@ -76,44 +76,66 @@
         <ComponentName Value="frmmedidas"/>
         <HasResources Value="True"/>
         <ResourceBaseClass Value="Form"/>
-        <EditorIndex Value="3"/>
-        <TopLine Value="374"/>
-        <CursorPos X="17" Y="376"/>
-        <UsageCount Value="92"/>
+        <IsVisibleTab Value="True"/>
+        <EditorIndex Value="4"/>
+        <TopLine Value="351"/>
+        <CursorPos Y="377"/>
+        <UsageCount Value="113"/>
+        <Loaded Value="True"/>
+        <LoadedDesigner Value="True"/>
+      </Unit>
+      <Unit>
+        <Filename Value="hint.pas"/>
+        <IsPartOfProject Value="True"/>
+        <ComponentName Value="frmHint"/>
+        <ResourceBaseClass Value="Form"/>
+        <EditorIndex Value="5"/>
+        <TopLine Value="22"/>
+        <CursorPos X="5" Y="48"/>
+        <UsageCount Value="45"/>
+        <Loaded Value="True"/>
+      </Unit>
+      <Unit>
+        <Filename Value="configuracoes.pas"/>
+        <IsPartOfProject Value="True"/>
+        <ComponentName Value="frmConfiguracoes"/>
+        <HasResources Value="True"/>
+        <ResourceBaseClass Value="Form"/>
+        <EditorIndex Value="1"/>
+        <TopLine Value="8"/>
+        <CursorPos Y="60"/>
+        <UsageCount Value="41"/>
         <Loaded Value="True"/>
         <LoadedDesigner Value="True"/>
       </Unit>
       <Unit>
         <Filename Value="C:\Users\mmaurin\AppData\Local\lazarus\onlinepackagemanager\packages\DataPort\DataPortSerial.pas"/>
-        <EditorIndex Value="8"/>
-        <UsageCount Value="54"/>
-        <Loaded Value="True"/>
+        <EditorIndex Value="-1"/>
+        <UsageCount Value="61"/>
         <DefaultSyntaxHighlighter Value="Delphi"/>
       </Unit>
       <Unit>
         <Filename Value="C:\Users\mmaurin\AppData\Local\lazarus\onlinepackagemanager\packages\DataPort\DataPortUART.pas"/>
-        <EditorIndex Value="10"/>
+        <EditorIndex Value="-1"/>
         <TopLine Value="31"/>
         <CursorPos X="26" Y="48"/>
-        <UsageCount Value="54"/>
-        <Loaded Value="True"/>
+        <UsageCount Value="61"/>
         <DefaultSyntaxHighlighter Value="Delphi"/>
       </Unit>
       <Unit>
         <Filename Value="C:\Users\mmaurin\AppData\Local\lazarus\onlinepackagemanager\packages\DataPort\DataPort.pas"/>
-        <EditorIndex Value="9"/>
+        <EditorIndex Value="-1"/>
         <TopLine Value="52"/>
         <CursorPos X="14" Y="66"/>
-        <UsageCount Value="54"/>
-        <Loaded Value="True"/>
+        <UsageCount Value="61"/>
         <DefaultSyntaxHighlighter Value="Delphi"/>
       </Unit>
       <Unit>
         <Filename Value="C:\Users\mmaurin\AppData\Local\lazarus\onlinepackagemanager\packages\industrialstuff\source\AdvLed.pas"/>
-        <EditorIndex Value="5"/>
+        <EditorIndex Value="6"/>
         <TopLine Value="3"/>
         <CursorPos X="33" Y="30"/>
-        <UsageCount Value="48"/>
+        <UsageCount Value="58"/>
         <Loaded Value="True"/>
       </Unit>
       <Unit>
@@ -122,18 +144,7 @@
         <EditorIndex Value="-1"/>
         <TopLine Value="97"/>
         <CursorPos X="3" Y="54"/>
-        <UsageCount Value="4"/>
-      </Unit>
-      <Unit>
-        <Filename Value="hint.pas"/>
-        <IsPartOfProject Value="True"/>
-        <ComponentName Value="frmHint"/>
-        <ResourceBaseClass Value="Form"/>
-        <EditorIndex Value="4"/>
-        <TopLine Value="22"/>
-        <CursorPos X="5" Y="48"/>
-        <UsageCount Value="24"/>
-        <Loaded Value="True"/>
+        <UsageCount Value="1"/>
       </Unit>
       <Unit>
         <Filename Value="C:\lazarus\fpc\3.2.2\source\packages\fcl-db\src\base\db.pas"/>
@@ -141,144 +152,144 @@
         <EditorIndex Value="-1"/>
         <TopLine Value="81"/>
         <CursorPos X="44" Y="96"/>
-        <UsageCount Value="12"/>
+        <UsageCount Value="9"/>
       </Unit>
       <Unit>
         <Filename Value="C:\lazarus\fpc\3.2.2\source\rtl\objpas\sysutils\datih.inc"/>
-        <EditorIndex Value="1"/>
+        <EditorIndex Value="2"/>
         <TopLine Value="113"/>
         <CursorPos X="10" Y="139"/>
-        <UsageCount Value="10"/>
+        <UsageCount Value="20"/>
         <Loaded Value="True"/>
       </Unit>
       <Unit>
         <Filename Value="C:\lazarus\fpc\3.2.2\source\rtl\objpas\sysutils\sysinth.inc"/>
-        <EditorIndex Value="2"/>
+        <EditorIndex Value="3"/>
         <CursorPos X="3" Y="33"/>
-        <UsageCount Value="10"/>
+        <UsageCount Value="20"/>
         <Loaded Value="True"/>
       </Unit>
     </Units>
     <JumpHistory HistoryIndex="29">
       <Position>
+        <Filename Value="medidas.pas"/>
+        <Caret Line="421" TopLine="369"/>
+      </Position>
+      <Position>
+        <Filename Value="medidas.pas"/>
+        <Caret Line="395" TopLine="370"/>
+      </Position>
+      <Position>
+        <Filename Value="medidas.pas"/>
+        <Caret Line="406" TopLine="370"/>
+      </Position>
+      <Position>
+        <Filename Value="medidas.pas"/>
+        <Caret Line="392" TopLine="370"/>
+      </Position>
+      <Position>
+        <Filename Value="medidas.pas"/>
+        <Caret Line="394" TopLine="370"/>
+      </Position>
+      <Position>
+        <Filename Value="medidas.pas"/>
+        <Caret Line="395" TopLine="370"/>
+      </Position>
+      <Position>
+        <Filename Value="medidas.pas"/>
+        <Caret Line="406" TopLine="370"/>
+      </Position>
+      <Position>
+        <Filename Value="medidas.pas"/>
+        <Caret Line="392" TopLine="370"/>
+      </Position>
+      <Position>
+        <Filename Value="medidas.pas"/>
+        <Caret Line="394" TopLine="370"/>
+      </Position>
+      <Position>
+        <Filename Value="medidas.pas"/>
+        <Caret Line="395" TopLine="370"/>
+      </Position>
+      <Position>
+        <Filename Value="medidas.pas"/>
+        <Caret Line="397" TopLine="370"/>
+      </Position>
+      <Position>
+        <Filename Value="medidas.pas"/>
+        <Caret Line="398" TopLine="370"/>
+      </Position>
+      <Position>
+        <Filename Value="medidas.pas"/>
+        <Caret Line="401" TopLine="370"/>
+      </Position>
+      <Position>
+        <Filename Value="medidas.pas"/>
+        <Caret Line="404" TopLine="370"/>
+      </Position>
+      <Position>
+        <Filename Value="medidas.pas"/>
+        <Caret Line="397" TopLine="370"/>
+      </Position>
+      <Position>
+        <Filename Value="medidas.pas"/>
+        <Caret Line="398" TopLine="370"/>
+      </Position>
+      <Position>
+        <Filename Value="medidas.pas"/>
+        <Caret Line="401" Column="56" TopLine="377"/>
+      </Position>
+      <Position>
+        <Filename Value="medidas.pas"/>
+        <Caret Line="397" TopLine="377"/>
+      </Position>
+      <Position>
+        <Filename Value="medidas.pas"/>
+        <Caret Line="349" Column="46" TopLine="321"/>
+      </Position>
+      <Position>
+        <Filename Value="medidas.pas"/>
+        <Caret Line="30" Column="44"/>
+      </Position>
+      <Position>
+        <Filename Value="medidas.pas"/>
+        <Caret Line="399" Column="5" TopLine="348"/>
+      </Position>
+      <Position>
+        <Filename Value="medidas.pas"/>
+        <Caret Line="10" Column="40"/>
+      </Position>
+      <Position>
+        <Filename Value="medidas.pas"/>
+        <Caret Line="377" TopLine="331"/>
+      </Position>
+      <Position>
+        <Filename Value="medidas.pas"/>
+        <Caret Line="370" Column="92" TopLine="347"/>
+      </Position>
+      <Position>
         <Filename Value="main.pas"/>
-        <Caret Line="299" TopLine="258"/>
+        <Caret Line="432" Column="34" TopLine="409"/>
       </Position>
       <Position>
-        <Filename Value="main.pas"/>
-        <Caret Line="300" TopLine="258"/>
-      </Position>
-      <Position>
-        <Filename Value="main.pas"/>
-        <Caret Line="301" TopLine="258"/>
-      </Position>
-      <Position>
-        <Filename Value="main.pas"/>
-        <Caret Line="302" TopLine="258"/>
-      </Position>
-      <Position>
-        <Filename Value="medidas.pas"/>
-        <Caret Line="301" TopLine="257"/>
-      </Position>
-      <Position>
-        <Filename Value="medidas.pas"/>
-        <Caret Line="302" TopLine="258"/>
-      </Position>
-      <Position>
-        <Filename Value="medidas.pas"/>
-        <Caret Line="288" Column="13" TopLine="265"/>
-      </Position>
-      <Position>
-        <Filename Value="medidas.pas"/>
-        <Caret Line="72" Column="32" TopLine="69"/>
-      </Position>
-      <Position>
-        <Filename Value="medidas.pas"/>
-        <Caret Line="297" Column="107" TopLine="267"/>
-      </Position>
-      <Position>
-        <Filename Value="main.pas"/>
-        <Caret Line="92" Column="22" TopLine="69"/>
-      </Position>
-      <Position>
-        <Filename Value="main.pas"/>
-        <Caret Line="86" Column="3" TopLine="69"/>
-      </Position>
-      <Position>
-        <Filename Value="main.pas"/>
-        <Caret Line="12" Column="11"/>
-      </Position>
-      <Position>
-        <Filename Value="medidas.pas"/>
-        <Caret Line="77" Column="9" TopLine="69"/>
-      </Position>
-      <Position>
-        <Filename Value="medidas.pas"/>
-        <Caret Line="180" TopLine="128"/>
-      </Position>
-      <Position>
-        <Filename Value="medidas.pas"/>
-        <Caret Line="177" TopLine="125"/>
-      </Position>
-      <Position>
-        <Filename Value="medidas.pas"/>
-        <Caret Line="142" Column="63" TopLine="134"/>
-      </Position>
-      <Position>
-        <Filename Value="medidas.pas"/>
-        <Caret Line="178" TopLine="126"/>
-      </Position>
-      <Position>
-        <Filename Value="medidas.pas"/>
-        <Caret Line="143" Column="26" TopLine="117"/>
-      </Position>
-      <Position>
-        <Filename Value="hint.pas"/>
-        <Caret Line="48" Column="5" TopLine="22"/>
-      </Position>
-      <Position>
-        <Filename Value="main.pas"/>
-        <Caret Line="15" Column="18"/>
-      </Position>
-      <Position>
-        <Filename Value="main.pas"/>
-        <Caret Line="94" Column="28" TopLine="70"/>
-      </Position>
-      <Position>
-        <Filename Value="main.pas"/>
+        <Filename Value="base.pas"/>
         <Caret Line="96" Column="28" TopLine="72"/>
       </Position>
       <Position>
-        <Filename Value="main.pas"/>
-        <Caret Line="163" Column="46" TopLine="137"/>
+        <Filename Value="base.pas"/>
+        <Caret Line="291" Column="57" TopLine="270"/>
       </Position>
       <Position>
-        <Filename Value="main.pas"/>
-        <Caret Line="162" Column="76" TopLine="136"/>
+        <Filename Value="base.pas"/>
+        <Caret Line="795" Column="72" TopLine="769"/>
       </Position>
       <Position>
-        <Filename Value="C:\lazarus\fpc\3.2.2\source\rtl\objpas\sysutils\datih.inc"/>
-        <Caret Line="139" Column="10" TopLine="113"/>
+        <Filename Value="base.pas"/>
+        <Caret Line="876" TopLine="824"/>
       </Position>
       <Position>
-        <Filename Value="main.pas"/>
-        <Caret Line="177" Column="48" TopLine="136"/>
-      </Position>
-      <Position>
-        <Filename Value="main.pas"/>
-        <Caret Line="182" TopLine="136"/>
-      </Position>
-      <Position>
-        <Filename Value="main.pas"/>
-        <Caret Line="162" Column="28" TopLine="136"/>
-      </Position>
-      <Position>
-        <Filename Value="main.pas"/>
-        <Caret Line="164" TopLine="145"/>
-      </Position>
-      <Position>
-        <Filename Value="main.pas"/>
-        <Caret Line="185" TopLine="146"/>
+        <Filename Value="medidas.pas"/>
+        <Caret Line="433" TopLine="407"/>
       </Position>
     </JumpHistory>
     <RunParams>
@@ -293,7 +304,42 @@
         <WatchScope Value="wpsLocal"/>
         <WatchKind Value="wpkWrite"/>
         <Source Value="main.pas"/>
-        <Line Value="163"/>
+        <Line Value="171"/>
+      </Item>
+      <Item>
+        <Kind Value="bpkSource"/>
+        <WatchScope Value="wpsLocal"/>
+        <WatchKind Value="wpkWrite"/>
+        <Source Value="medidas.pas"/>
+        <Line Value="1"/>
+      </Item>
+      <Item>
+        <Kind Value="bpkSource"/>
+        <WatchScope Value="wpsLocal"/>
+        <WatchKind Value="wpkWrite"/>
+        <Source Value="medidas.pas"/>
+        <Line Value="1"/>
+      </Item>
+      <Item>
+        <Kind Value="bpkSource"/>
+        <WatchScope Value="wpsLocal"/>
+        <WatchKind Value="wpkWrite"/>
+        <Source Value="medidas.pas"/>
+        <Line Value="1"/>
+      </Item>
+      <Item>
+        <Kind Value="bpkSource"/>
+        <WatchScope Value="wpsLocal"/>
+        <WatchKind Value="wpkWrite"/>
+        <Source Value="medidas.pas"/>
+        <Line Value="1"/>
+      </Item>
+      <Item>
+        <Kind Value="bpkSource"/>
+        <WatchScope Value="wpsLocal"/>
+        <WatchKind Value="wpkWrite"/>
+        <Source Value="medidas.pas"/>
+        <Line Value="1"/>
       </Item>
     </BreakPoints>
   </Debugging>

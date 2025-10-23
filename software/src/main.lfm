@@ -79,6 +79,7 @@ object frmmain: Tfrmmain
       Width = 193
       Align = alClient
       Images = ImageList1
+      StateImages = ImageList1
       TabOrder = 1
     end
   end
@@ -123,9 +124,9 @@ object frmmain: Tfrmmain
       Height = 520
       Top = 1
       Width = 708
-      ActivePage = tsSobre
+      ActivePage = tsLog
       Align = alClient
-      TabIndex = 0
+      TabIndex = 2
       TabOrder = 0
       object tsSobre: TTabSheet
         Caption = 'Sobre'
@@ -182,6 +183,19 @@ object frmmain: Tfrmmain
           Caption = 'Parar Varredura'
           TabOrder = 1
           OnClick = btVarredura1Click
+        end
+      end
+      object tsLog: TTabSheet
+        Caption = 'Log de Comunicação'
+        ClientHeight = 492
+        ClientWidth = 700
+        object meLog: TMemo
+          Left = 0
+          Height = 492
+          Top = 0
+          Width = 700
+          Align = alClient
+          TabOrder = 0
         end
       end
     end
@@ -255,6 +269,10 @@ object frmmain: Tfrmmain
     end
     object MenuItem5: TMenuItem
       Caption = 'Analise'
+      object MenuItem8: TMenuItem
+        Caption = 'Medidas'
+        OnClick = MenuItem8Click
+      end
     end
     object MenuItem6: TMenuItem
       Caption = 'Relatório'

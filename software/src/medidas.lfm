@@ -105,9 +105,9 @@ object frmmedidas: Tfrmmedidas
     Height = 397
     Top = 96
     Width = 656
-    ActivePage = TabSheet2
+    ActivePage = TabSheet3
     Align = alClient
-    TabIndex = 2
+    TabIndex = 1
     TabOrder = 2
     object TabSheet1: TTabSheet
       Caption = 'Temperatura'

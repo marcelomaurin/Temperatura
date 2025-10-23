@@ -6,9 +6,13 @@ interface
 
 uses
   Classes, SysUtils, Forms, Controls, Graphics, Dialogs, ExtCtrls,
-  PopupNotifier, ComCtrls, Menus, StdCtrls, AnchorDockPanel, UniqueInstance,
-  uplaysound, untsalesSwitch, DataPortSerial, DataPortHTTP, AdvLed, NiceSideBar,
-  base, setmain, caddevice,  fpjson, jsonparser; // <-- garantir estes na seção implementation uses;
+  PopupNotifier, ComCtrls, Menus, StdCtrls, DBCtrls, AnchorDockPanel,
+  UniqueInstance, uplaysound, untsalesSwitch, DataPortSerial, DataPortHTTP,
+  AdvLed, NiceSideBar, medidas, base, setmain, caddevice, fpjson, jsonparser,
+  DB, hint, configuracoes; // <-- garantir estes na seção implementation uses;
+
+Const
+  Versao =  '0.5';
 
 type
 
@@ -21,7 +25,10 @@ type
     HeaderControl1: THeaderControl;
     ImageList1: TImageList;
     Label1: TLabel;
+    Label2: TLabel;
+    lbversao: TLabel;
     MainMenu1: TMainMenu;
+    meLog: TMemo;
     MenuItem1: TMenuItem;
     MenuItem2: TMenuItem;
     MenuItem3: TMenuItem;
@@ -29,6 +36,7 @@ type
     MenuItem5: TMenuItem;
     MenuItem6: TMenuItem;
     MenuItem7: TMenuItem;
+    MenuItem8: TMenuItem;
     PageControl1: TPageControl;
     Panel1: TPanel;
     Panel2: TPanel;
@@ -39,7 +47,9 @@ type
     PopupNotifier1: TPopupNotifier;
     Splitter1: TSplitter;
     StatusBar1: TStatusBar;
+    tsLog: TTabSheet;
     tbStatus: TTabSheet;
+    Timer1: TTimer;
     tmProcessa: TTimer;
     tsSobre: TTabSheet;
     tvItem: TTreeView;
@@ -51,7 +61,10 @@ type
     procedure HeaderControl1SectionClick(HeaderControl: TCustomHeaderControl;
       Section: THeaderSection);
     procedure MenuItem2Click(Sender: TObject);
+    procedure MenuItem3Click(Sender: TObject);
     procedure MenuItem7Click(Sender: TObject);
+    procedure MenuItem8Click(Sender: TObject);
+    procedure Timer1Timer(Sender: TObject);
     procedure tmProcessaStartTimer(Sender: TObject);
     procedure tmProcessaStopTimer(Sender: TObject);
     procedure tmProcessaTimer(Sender: TObject);
@@ -61,13 +74,18 @@ type
     procedure Inicializar;
     procedure Arvore_Reset;
 
+
   public
     // Adiciona um device sob o nó "Devices" e vincula um ponteiro ao Node.Data
     function AdicionaDevice(const ANome: string; APtr: Pointer): TTreeNode;
     procedure CadEquipamentos();
     procedure AdicionaDevices;
     procedure VerreDevices();
+    procedure chamarTipo1;
     procedure chamarTipo2;
+    procedure ChamaMedidas();
+    procedure Configuracoes();
+    procedure RegistraLog(info : string);
   end;
 
 var
@@ -84,6 +102,9 @@ begin
   // Carrega/gera configurações (srvtemp.cfg) via TSetMain
   FSETMAIN := TSetMain.Create;
   FSETMAIN.CarregaContexto;
+  lbversao.Caption:= Versao;
+
+  frmhint := tfrmhint.create(self);
 
   // DataModule da aplicação
   dmBase := TdmBase.Create(Self);
@@ -105,6 +126,7 @@ procedure Tfrmmain.FormDestroy(Sender: TObject);
 begin
     // Persiste e libera as configurações
   FreeAndNil(FSETMAIN);
+  FreeAndNil(frmhint);
   // dmBase será liberado automaticamente por ter Owner = Self
 end;
 
@@ -120,7 +142,8 @@ begin
   end;
   if(Section.OriginalIndex=1) then
   begin
-     //Medidas
+     ChamaMedidas();
+
   end;
   if(Section.OriginalIndex=2) then
   begin
@@ -137,11 +160,46 @@ begin
   Close;
 end;
 
+procedure Tfrmmain.MenuItem3Click(Sender: TObject);
+begin
+  Configuracoes();
+end;
+
 procedure Tfrmmain.MenuItem7Click(Sender: TObject);
 begin
   CadEquipamentos();
   AdicionaDevices;
 end;
+
+procedure Tfrmmain.MenuItem8Click(Sender: TObject);
+begin
+     ChamaMedidas();
+end;
+
+procedure Tfrmmain.Timer1Timer(Sender: TObject);
+var
+  sClock, sConn, sHint: string;
+begin
+
+
+  sClock := FormatDateTime('dd/mm/yyyy hh:nn:ss', Now);
+  if StatusBar1.Panels[0].Text <> sClock then
+    StatusBar1.Panels[0].Text := sClock;
+
+  if Assigned(dmbase) and Assigned(dmbase.ZConnection1) and dmbase.ZConnection1.Connected then
+    sConn := 'Banco Conectado'
+  else
+    sConn := 'Banco Desconectado';
+
+  if StatusBar1.Panels[1].Text <> sConn then
+    StatusBar1.Panels[1].Text := sConn;
+
+  sHint := Application.Hint;
+  if StatusBar1.Panels[2].Text <> sHint then
+    StatusBar1.Panels[2].Text := sHint;
+end;
+
+
 
 procedure Tfrmmain.tmProcessaStartTimer(Sender: TObject);
 begin
@@ -159,6 +217,7 @@ begin
   AdvLed1.State:=lsOn;
   AdvLed1.Blink:=false;
   VerreDevices();
+  application.ProcessMessages;
 end;
 
 procedure Tfrmmain.Inicializar;
@@ -173,12 +232,20 @@ begin
 
   // Cria o nó raiz "Devices" e guarda a referência
   FNodeDevices := tvItem.Items.Add(nil, 'Devices');
+  FNodeDevices.ImageIndex:=4;
   // (Opcional) Deixa o nó aberto
   if Assigned(FNodeDevices) then
     FNodeDevices.Expand(False);
 end;
 
+procedure Tfrmmain.RegistraLog(info: string);
+begin
+  meLog.Append(datetimetostr(now)+' '+info);
+end;
+
 function Tfrmmain.AdicionaDevice(const ANome: string; APtr: Pointer): TTreeNode;
+var
+  item : TTreeNode;
 begin
   // Garante que o nó "Devices" exista
   if (FNodeDevices = nil) then
@@ -190,7 +257,9 @@ begin
 
 
   // Cria o nó filho com o nome do device
-  Result := tvItem.Items.AddChild(FNodeDevices, ANome);
+  item := tvItem.Items.AddChild(FNodeDevices, ANome);
+  item.ImageIndex:=1;
+  result := item;
 
   // Vincula o ponteiro ao node (recuperável depois via Node.Data)
   if Assigned(Result) then
@@ -219,6 +288,7 @@ begin
   if (FNodeDevices = nil) then
   begin
     FNodeDevices := tvItem.Items.Add(nil, 'Devices');
+    FNodeDevices.ImageIndex:=4;
     if Assigned(FNodeDevices) then
       FNodeDevices.Expand(False);
   end;
@@ -239,6 +309,7 @@ begin
 
     // Cria nó como FILHO de FNodeDevices
     N := tvItem.Items.AddChild(FNodeDevices, DevNome);
+    n.ImageIndex:= 1;
 
     // Armazena o ID no nó:
     // OBS: TTreeNode no Lazarus NÃO tem Tag; usamos Data (Pointer) com cast seguro.
@@ -255,7 +326,55 @@ end;
 
 procedure Tfrmmain.VerreDevices();
 begin
-   chamarTipo2;
+   chamarTipo1;
+   //chamarTipo2;
+end;
+
+procedure Tfrmmain.chamarTipo1;
+var
+  L: TStringList;
+  i: Integer;
+  J: TJSONData;
+  tempVal, humVal: Double;
+  o: TJSONObject;
+  DevId: Int64;
+  porta : string;
+begin
+  L := TStringList.Create;
+  if not dmBase.ListaPortasTipo1(L) then
+  begin
+    L.Free;
+    Exit;
+  end;
+  if(L.Count >1) then
+  begin
+    ShowMessage('Só pode existir um device serial!');
+    tmProcessa.Enabled:=false;
+    L.free;
+    Exit;
+  end;
+
+  try
+    for i := 0 to L.Count - 1 do
+    begin
+      // id_device vem em Objects[i] como Pointer -> PtrInt
+      if Assigned(L.Objects[i]) then
+        DevId := PtrInt(L.Objects[i])
+      else
+        DevId := -1;
+
+      dmbase.serialdevid:= DevID;
+
+      porta := dmBase.GetIDPorta(DevID);
+      if(not dmbase.LazSerial1.Active) then
+      begin
+        dmbase.LazSerial1.Device:= porta;
+        dmbase.AtualizaConSerial(true);
+      end;
+    end;
+  finally
+    L.Free; // seguro, pois OwnsObjects=False
+  end;
 end;
 
 procedure Tfrmmain.chamarTipo2;
@@ -266,7 +385,6 @@ var
   tempVal, humVal: Double;
   o: TJSONObject;
   DevId: Int64;
-  DevRef: TDeviceRef; // <--- usa o tipo exposto em base.pas
 begin
   L := TStringList.Create;
   if not dmBase.ListaPortasTipo2(L) then
@@ -278,13 +396,13 @@ begin
   try
     for i := 0 to L.Count - 1 do
     begin
-      // Porta/IP é L[i]; id_device vem no Objects[i]
-      DevRef := TDeviceRef(L.Objects[i]);
-      if Assigned(DevRef) then
-        DevId := DevRef.IdDevice
+      // id_device vem em Objects[i] como Pointer -> PtrInt
+      if Assigned(L.Objects[i]) then
+        DevId := PtrInt(L.Objects[i])
       else
         DevId := -1;
 
+      // Cada item da lista é uma "porta"/IP
       if dmBase.ConsultaIPTempHum(L[i], J) then
       try
         tempVal := 0;
@@ -306,13 +424,14 @@ begin
         else
           StatusBar1.SimpleText := L[i] + ' -> JSON recebido (sem campos previstos)';
 
-        // --- Registrar em banco (tabela medidas) usando DevId do objeto ---
+        // Registrar em banco usando o DevId derivado do Pointer
         if DevId > 0 then
         begin
+          // 0 = temperatura, 1 = humidade
           if (tempVal <> 0) then
-            dmBase.RegistraMedida(DevId, 0, tempVal); // 0 = temperatura
+            dmBase.RegistraMedida(DevId, 0, tempVal);
           if (humVal <> 0) then
-            dmBase.RegistraMedida(DevId, 1, humVal);  // 1 = humidade
+            dmBase.RegistraMedida(DevId, 1, humVal);
         end;
 
       finally
@@ -324,9 +443,28 @@ begin
       end;
     end;
   finally
-    L.Free; // OwnsObjects=True em ListaPortasTipo2 garante liberar TDeviceRef
+    L.Free; // seguro, pois OwnsObjects=False
   end;
 end;
+
+procedure Tfrmmain.ChamaMedidas();
+begin
+  if (frmmedidas = nil) then
+  begin
+   frmmedidas := Tfrmmedidas.create(self);
+  end;
+  frmmedidas.show();
+
+end;
+
+procedure Tfrmmain.Configuracoes();
+begin
+   frmConfiguracoes := TfrmConfiguracoes.Create(self);
+   frmConfiguracoes.showmodal;
+   frmConfiguracoes.free;
+   frmConfiguracoes := nil;
+end;
+
 
 
 

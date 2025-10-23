@@ -26,6 +26,9 @@
     </RunParams>
     <RequiredPackages>
       <Item>
+        <PackageName Value="LazSerialPort"/>
+      </Item>
+      <Item>
         <PackageName Value="TAChartLazarusPkg"/>
       </Item>
       <Item>
@@ -113,6 +116,13 @@
         <Filename Value="hint.pas"/>
         <IsPartOfProject Value="True"/>
         <ComponentName Value="frmHint"/>
+        <ResourceBaseClass Value="Form"/>
+      </Unit>
+      <Unit>
+        <Filename Value="configuracoes.pas"/>
+        <IsPartOfProject Value="True"/>
+        <ComponentName Value="frmConfiguracoes"/>
+        <HasResources Value="True"/>
         <ResourceBaseClass Value="Form"/>
       </Unit>
     </Units>

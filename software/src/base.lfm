@@ -10,6 +10,7 @@ object dmBase: TdmBase
     Properties.Strings = (
       'RawStringEncoding=DB_CP'
     )
+    Connected = True
     AddLogMsgToExceptionOrWarningMsg = False
     DisableSavepoints = False
     Port = 0
@@ -18,22 +19,6 @@ object dmBase: TdmBase
     LibraryLocation = 'C:\db\sqlite3.dll'
     Left = 56
     Top = 40
-  end
-  object DataPortSerial1: TDataPortSerial
-    Port = 'COM1'
-    BaudRate = 9600
-    DataBits = 8
-    Parity = 'N'
-    StopBits = stb1
-    FlowControl = sfcNone
-    SoftFlow = False
-    HardFlow = False
-    MinDataBytes = 1
-    HalfDuplex = False
-    Active = False
-    OnDataAppear = DataPortSerial1DataAppear
-    Left = 240
-    Top = 96
   end
   object DataPortHTTP1: TDataPortHTTP
     Method = httpGet
@@ -61,47 +46,11 @@ object dmBase: TdmBase
   object tbldevices: TZTable
     Connection = ZConnection1
     TableName = 'devices'
+    MasterFields = 'id_device'
+    MasterSource = dsdevices
+    LinkedFields = 'id_device'
     Left = 152
     Top = 162
-    object tbldevicesnome: TZRawStringField
-      FieldKind = fkData
-      FieldName = 'nome'
-      Index = 0
-      LookupCache = False
-      ProviderFlags = [pfInUpdate, pfInWhere]
-      ReadOnly = False
-      Required = False
-      Size = 25
-    end
-    object tbldevicestipo: TZInt64Field
-      FieldKind = fkData
-      FieldName = 'tipo'
-      Index = 1
-      LookupCache = False
-      ProviderFlags = [pfInUpdate, pfInWhere]
-      ReadOnly = False
-      Required = False
-    end
-    object tbldevicesporta: TZRawCLobField
-      FieldKind = fkData
-      FieldName = 'porta'
-      Index = 2
-      LookupCache = False
-      ProviderFlags = [pfInUpdate, pfInWhere]
-      ReadOnly = False
-      Required = False
-      BlobType = ftMemo
-      Transliterate = False
-    end
-    object tbldevicesdtcad: TZDateTimeField
-      FieldKind = fkData
-      FieldName = 'dtcad'
-      Index = 3
-      LookupCache = False
-      ProviderFlags = [pfInUpdate, pfInWhere]
-      ReadOnly = False
-      Required = False
-    end
   end
   object dsdevices: TDataSource
     DataSet = zqrydevices
@@ -120,5 +69,30 @@ object dmBase: TdmBase
     Params = <>
     Left = 32
     Top = 312
+  end
+  object LazSerial1: TLazSerial
+    Active = False
+    BaudRate = br115200
+    DataBits = db8bits
+    Parity = pNone
+    FlowControl = fcNone
+    StopBits = sbOne
+    SynSer.Tag = 0
+    SynSer.Handle = -1
+    SynSer.RaiseExcept = False
+    SynSer.TestDSR = False
+    SynSer.TestCTS = False
+    SynSer.MaxLineLength = 0
+    SynSer.DeadlockTimeout = 30000
+    SynSer.LinuxLock = False
+    SynSer.ConvertLineEnd = False
+    SynSer.AtTimeout = 1000
+    SynSer.InterPacketTimeout = True
+    Device = 'COM1'
+    RcvLineCRLF = False
+    OnRxData = LazSerial1RxData
+    OnStatus = LazSerial1Status
+    Left = 240
+    Top = 104
   end
 end

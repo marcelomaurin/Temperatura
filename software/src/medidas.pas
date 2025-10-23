@@ -7,7 +7,7 @@ interface
 uses
   Classes, SysUtils, DB, csvdataset, Forms, Controls, Graphics, Dialogs,
   ExtCtrls, StdCtrls, DBGrids, DBCtrls, ComCtrls, TAGraph, rxtooledit,
-  NiceChart, base, DateUtils, setmain;
+  NiceChart, base, DateUtils, Math;
 
 type
 
@@ -40,15 +40,24 @@ type
     procedure Button1Click(Sender: TObject);
     procedure FormCreate(Sender: TObject);
   private
-
+    // ---- Controle para evitar gravações repetidas ----
+    FLastTemp: Double;
+    FLastHum : Double;
+    FHaveLast: Boolean;
+    procedure ResetUltimos;  // zera/limpa os últimos valores
   public
-     FAxisXIsDateTime: Boolean;
-     FAxisXDateFormat: string;
-     procedure GeraGrafico();
-     procedure GeraGraficoHumidade();
-     property AxisXIsDateTime: Boolean read FAxisXIsDateTime write FAxisXIsDateTime default False;
-     property AxisXDateFormat: string read FAxisXDateFormat write FAxisXDateFormat;
+    FAxisXIsDateTime: Boolean;
+    FAxisXDateFormat: string;
 
+    procedure GeraGrafico;
+    procedure GeraGraficoHumidade;
+
+    // Registra apenas se mudou (com tolerância/Epsilon)
+    procedure RegistrarSeMudou(ADevId: Int64; const Temp, Hum: Double;
+      const EpsilonTemp: Double = 0.01; const EpsilonHum: Double = 0.1);
+
+    property AxisXIsDateTime: Boolean read FAxisXIsDateTime write FAxisXIsDateTime default False;
+    property AxisXDateFormat: string read FAxisXDateFormat write FAxisXDateFormat;
   end;
 
 var
@@ -62,8 +71,8 @@ implementation
 
 procedure Tfrmmedidas.btFecharClick(Sender: TObject);
 begin
-  close;
-  frmmedidas.free;
+  Close;
+  frmmedidas.Free;
   frmmedidas := nil;
 end;
 
@@ -116,7 +125,7 @@ begin
 
       // Formatação BR (vírgula decimal)
       fmt := DefaultFormatSettings;
-      fmt.DecimalSeparator := ',';
+      fmt.DecimalSeparator := ','; // para CSV PT-BR
 
       // Dados
       bmk := ds.GetBookmark;
@@ -139,8 +148,7 @@ begin
                   cell := FormatDateTime('hh:nn:ss', fld.AsDateTime);
                 ftDateTime, ftTimeStamp:
                   cell := FormatDateTime('yyyy-mm-dd hh:nn:ss', fld.AsDateTime);
-                // <- sem ftSingle e sem ftTimeStampTZ
-                ftFloat,  ftCurrency, ftBCD, ftFMTBcd:
+                ftFloat, ftCurrency, ftBCD, ftFMTBcd:
                   cell := FloatToStr(fld.AsFloat, fmt);
               else
                 cell := fld.AsString; // inteiro, string, etc.
@@ -176,9 +184,6 @@ begin
   end;
 end;
 
-
-
-
 procedure Tfrmmedidas.Button1Click(Sender: TObject);
 var
   AIdDevice : Int64;
@@ -188,11 +193,8 @@ var
 begin
   if lbdevices.KeyValue <> Null then
   begin
-    // Pega direto o valor da chave e o texto visível
-
-    Nome      := lbdevices.GetSelectedText;
-
-    AIdDevice := dmbase.BuscaDeviceIdPorNome(nome);
+    Nome := lbdevices.GetSelectedText;
+    AIdDevice := dmbase.BuscaDeviceIdPorNome(Nome);
 
     DataIni := dtInicia.Date;
     DataFim := EndOfTheDay(dtfim.Date);
@@ -201,8 +203,8 @@ begin
     begin
       ShowMessage(Format('Encontradas %d medidas para "%s".',
         [dmbase.zqrymedidas.RecordCount, Nome]));
-      GeraGrafico();
-      GeraGraficoHumidade();
+      GeraGrafico;
+      GeraGraficoHumidade;
     end
     else
       ShowMessage('Nenhuma medida encontrada para este período.');
@@ -211,22 +213,78 @@ begin
     ShowMessage('Selecione pelo menos um device.');
 end;
 
-
 procedure Tfrmmedidas.FormCreate(Sender: TObject);
 begin
-  dtInicia.Date:= now;
-  dtfim.date := now;
+  dtInicia.Date := Now;
+  dtfim.Date    := Now;
+
   FAxisXIsDateTime := False;
   FAxisXDateFormat := 'dd/mm/yy hh:nn';
-  if(not dmbase.tbldevices.Active) then
-  begin
-       dmbase.tbldevices.open;
-  end;
+
+  // Zera os últimos valores logo ao iniciar a classe (conforme solicitado)
+  ResetUltimos;
+
+  if not dmbase.tbldevices.Active then
+    dmbase.tbldevices.Open;
 end;
 
+procedure Tfrmmedidas.ResetUltimos;
+begin
+  FLastTemp := 0.0;
+  FLastHum  := 0.0;
+  FHaveLast := False; // indica que ainda não temos “última leitura válida”
+end;
 
+procedure Tfrmmedidas.RegistrarSeMudou(ADevId: Int64; const Temp, Hum: Double;
+  const EpsilonTemp: Double; const EpsilonHum: Double);
+var
+  mudouT, mudouH: Boolean;
+begin
+  if ADevId <= 0 then Exit;
 
-procedure Tfrmmedidas.GeraGrafico();
+  // Ignora se ambos inválidos/indisponíveis
+  if (IsNan(Temp) or IsInfinite(Temp)) and
+     (IsNan(Hum)  or IsInfinite(Hum)) then
+    Exit;
+
+  // Primeira leitura válida: grava o que for válido
+  if not FHaveLast then
+  begin
+    if not (IsNan(Temp) or IsInfinite(Temp)) then
+      dmBase.RegistraMedida(ADevId, 0, Temp); // 0=temperatura
+    if not (IsNan(Hum) or IsInfinite(Hum)) then
+      dmBase.RegistraMedida(ADevId, 1, Hum);  // 1=umidade
+
+    FLastTemp := Temp;
+    FLastHum  := Hum;
+    FHaveLast := True;
+    Exit;
+  end;
+
+  // Já temos “últimos”: só grava se mudarem acima do epsilon
+  mudouT := False;
+  mudouH := False;
+
+  if not (IsNan(Temp) or IsInfinite(Temp)) then
+    mudouT := Abs(Temp - FLastTemp) >= EpsilonTemp;
+
+  if not (IsNan(Hum) or IsInfinite(Hum)) then
+    mudouH := Abs(Hum - FLastHum) >= EpsilonHum;
+
+  if mudouT then
+    dmBase.RegistraMedida(ADevId, 0, Temp);
+
+  if mudouH then
+    dmBase.RegistraMedida(ADevId, 1, Hum);
+
+  // Atualiza últimos valores quando válidos
+  if not (IsNan(Temp) or IsInfinite(Temp)) then
+    FLastTemp := Temp;
+  if not (IsNan(Hum) or IsInfinite(Hum)) then
+    FLastHum := Hum;
+end;
+
+procedure Tfrmmedidas.GeraGrafico;
 var
   SerieTemp : TNiceSeries;
   ds        : TDataSet;
@@ -245,7 +303,7 @@ begin
     Exit;
   end;
 
-  // Acha a primeira data (base de cálculo)
+  // Acha a primeira data de temperatura (tipomedida=0) como base
   temBase := False;
   bmk := ds.GetBookmark;
   try
@@ -254,7 +312,7 @@ begin
     while not ds.EOF do
     begin
       tipo := ds.FieldByName('tipomedida').AsInteger;
-      if tipo =0 then
+      if tipo = 0 then
       begin
         dtBase := ds.FieldByName('dthrcad').AsDateTime;
         temBase := True;
@@ -270,7 +328,7 @@ begin
 
   if not temBase then
   begin
-    ShowMessage('Nenhuma medida de temperatura encontrada (tipomedida=1).');
+    ShowMessage('Nenhuma medida de temperatura encontrada (tipomedida=0).');
     Exit;
   end;
 
@@ -279,16 +337,18 @@ begin
     NiceChart1.Clear;
 
     NiceChart1.Title := 'Temperatura x Tempo';
-    NiceChart1.AxisXTitle := 'Tempo (dd/mm/yy hh:mm)';
+    NiceChart1.AxisXTitle := 'Horas desde a primeira leitura';
     NiceChart1.AxisYTitle := 'Temperatura (°C)';
-    NiceChart1.AxisXOnePerValue := True; // cada ponto será uma posição sequencial
+    NiceChart1.AxisXOnePerValue := True;
     NiceChart1.ShowLegend := True;
+    NiceChart1.ShowXGrid := True;
+    NiceChart1.ShowYGrid := True;
 
     SerieTemp := NiceChart1.AddSeries(skLine);
     SerieTemp.Caption := 'Temperatura (°C)';
     SerieTemp.LineWidth := 2;
 
-    // Adiciona os pontos
+    // Alimenta apenas tipomedida=0 (temperatura)
     bmk := ds.GetBookmark;
     try
       ds.DisableControls;
@@ -301,8 +361,8 @@ begin
           dt := ds.FieldByName('dthrcad').AsDateTime;
           val := ds.FieldByName('valor').AsFloat;
 
-          // Calcula a hora relativa (1, 2, 3...)
-          XHora := (dt - dtBase) * 24.0; // diferença em horas
+          // X = horas decorridas desde a base
+          XHora := (dt - dtBase) * 24.0; // intervalo em horas
           SerieTemp.AddXY(XHora + 1, val, FormatDateTime('dd/mm/yy hh:nn', dt));
         end;
         ds.Next;
@@ -318,42 +378,66 @@ begin
   end;
 end;
 
-
-procedure Tfrmmedidas.GeraGraficoHumidade();
+procedure Tfrmmedidas.GeraGraficoHumidade;
 var
   Serie   : TNiceSeries;
   ds      : TDataSet;
   bmk     : TBookmark;
   dt      : TDateTime;
-  dtBase  : TDateTime;
   val     : Double;
-  tipo    : Integer;
-  xHourIx : Integer;  // 1, 2, 3... (cada unidade = 1h)
-  temBase : Boolean;
+  xSec    : Integer;  // 1..86400 (segundos desde 00:00:00)
 begin
-  ds := dmbase.zqrymedidas;
+  ds := dmBase.zqrymedidas;
   if (ds = nil) or ds.IsEmpty then
   begin
     ShowMessage('Não há medidas carregadas para gerar o gráfico.');
     Exit;
   end;
 
-  // 1) Base: primeira leitura com tipomedida = 1 (umidade), truncada para a hora
-  temBase := False;
+  // Limpa e configura o gráfico
+  NiceChart2.Clear;
+  NiceChart2.Title            := 'Umidade x Tempo (tipomedida=1)';
+  NiceChart2.AxisXTitle       := 'Segundos desde 00:00:00 (1..86400)';
+  NiceChart2.AxisYTitle       := 'Umidade (%)';
+  NiceChart2.ShowLegend       := True;
+  NiceChart2.ShowXGrid        := True;
+  NiceChart2.ShowYGrid        := True;
+  NiceChart2.AxisXOnePerValue := True;
+
+  Serie := NiceChart2.AddSeries(skLine);
+  Serie.Caption   := 'Umidade (%)';
+  Serie.LineWidth := 2;
+
+  // Percorre o dataset adicionando SOMENTE tipomedida = 1 (umidade)
   bmk := ds.GetBookmark;
   try
     ds.DisableControls;
     ds.First;
     while not ds.EOF do
     begin
-      tipo := ds.FieldByName('tipomedida').AsInteger;
-      if tipo = 1 then
+      if (not ds.FieldByName('dthrcad').IsNull) and
+         (not ds.FieldByName('valor').IsNull) and
+         (ds.FieldByName('tipomedida').AsInteger = 1) then
       begin
-        dtBase := Int(ds.FieldByName('dthrcad').AsDateTime) +
-                  (HourOf(ds.FieldByName('dthrcad').AsDateTime) / 24.0);
-        temBase := True;
-        Break;
+        dt  := ds.FieldByName('dthrcad').AsDateTime;
+        val := ds.FieldByName('valor').AsFloat;
+
+        // Proteções contra valores inválidos
+        if (dt > 0) and (not IsNan(val)) and (not IsInfinite(val)) then
+        begin
+          // X = segundos desde o início do dia (1..86400)
+          xSec := SecondsBetween(StartOfTheDay(dt), dt) + 1;
+          if xSec < 1 then xSec := 1
+          else if xSec > 86400 then xSec := 86400;
+
+          Serie.AddXY(
+            Double(xSec),
+            val,
+            FormatDateTime('dd/mm/yy hh:nn:ss', dt) // hint
+          );
+        end;
       end;
+
       ds.Next;
     end;
   finally
@@ -362,64 +446,13 @@ begin
     ds.EnableControls;
   end;
 
-  if not temBase then
-  begin
-    ShowMessage('Nenhuma medida encontrada com tipomedida = 1 (umidade).');
-    Exit;
-  end;
-
-  // 2) Monta o gráfico (substitui o conteúdo do NiceChart1)
-  NiceChart2.BeginUpdate;
+  // Repintar, se suportado
   try
-    NiceChart2.Clear;
-
-    NiceChart2.Title            := 'Umidade x Tempo (tipomedida=1)';
-    NiceChart2.AxisXTitle       := 'Horas desde o início (1, 2, 3, …)';
-    NiceChart2.AxisYTitle       := 'Umidade (%)';
-    NiceChart2.ShowLegend       := True;
-    NiceChart2.ShowXGrid        := True;
-    NiceChart2.ShowYGrid        := True;
-    NiceChart2.AxisXOnePerValue := True;   // eixo categórico por ponto
-
-    Serie := NiceChart2.AddSeries(skLine);
-    Serie.Caption   := 'Umidade (%)';
-    Serie.LineWidth := 2;
-
-    // 3) Alimenta apenas tipomedida = 1
-    bmk := ds.GetBookmark;
-    try
-      ds.DisableControls;
-      ds.First;
-      while not ds.EOF do
-      begin
-        tipo := ds.FieldByName('tipomedida').AsInteger;
-        if tipo = 1 then
-        begin
-          dt  := ds.FieldByName('dthrcad').AsDateTime;
-          val := ds.FieldByName('valor').AsFloat;
-
-          // Índice de hora: 1 para a hora-base, 2 para a próxima, etc.
-          xHourIx := Trunc(((dt - dtBase) * 24.0)) + 1;
-
-          // Hint com a data/hora real
-          Serie.AddXY(xHourIx, val, FormatDateTime('dd/mm/yy hh:nn', dt));
-        end;
-        ds.Next;
-      end;
-    finally
-      if ds.BookmarkValid(bmk) then ds.GotoBookmark(bmk);
-      ds.FreeBookmark(bmk);
-      ds.EnableControls;
-    end;
-
-  finally
-    NiceChart2.EndUpdate;
+    NiceChart2.Invalidate;
+  except
+    // ignora se não existir
   end;
 end;
-
-
-
-
 
 end.
 
