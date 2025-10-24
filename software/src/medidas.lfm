@@ -66,14 +66,14 @@ object frmmedidas: Tfrmmedidas
       TabOrder = 2
       Text = 't1/  /    '
     end
-    object Button1: TButton
+    object btPesquisar: TButton
       Left = 240
       Height = 38
       Top = 8
       Width = 96
       Caption = 'Pesquisar'
       TabOrder = 3
-      OnClick = Button1Click
+      OnClick = btPesquisarClick
     end
   end
   object Panel2: TPanel

@@ -8,8 +8,8 @@ uses
   Classes, SysUtils, Forms, Controls, Graphics, Dialogs, ExtCtrls,
   PopupNotifier, ComCtrls, Menus, StdCtrls, DBCtrls, AnchorDockPanel,
   UniqueInstance, uplaysound, untsalesSwitch, DataPortSerial, DataPortHTTP,
-  AdvLed, NiceSideBar, medidas, base, setmain, caddevice, fpjson, jsonparser,
-  DB, hint, configuracoes; // <-- garantir estes na seção implementation uses;
+  AdvLed, LedNumber, NiceSideBar, medidas, base, setmain, caddevice, fpjson,
+  jsonparser, DB, hint, configuracoes; // <-- garantir estes na seção implementation uses;
 
 Const
   Versao =  '0.5';
@@ -37,6 +37,7 @@ type
     MenuItem6: TMenuItem;
     MenuItem7: TMenuItem;
     MenuItem8: TMenuItem;
+    MenuItem9: TMenuItem;
     PageControl1: TPageControl;
     Panel1: TPanel;
     Panel2: TPanel;

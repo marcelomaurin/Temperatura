@@ -15,7 +15,7 @@ type
 
   Tfrmmedidas = class(TForm)
     btFechar: TButton;
-    Button1: TButton;
+    btPesquisar: TButton;
     btExportar: TButton;
     CSVDataset1: TCSVDataset;
     DBGrid1: TDBGrid;
@@ -37,7 +37,7 @@ type
     TabSheet3: TTabSheet;
     procedure btExportarClick(Sender: TObject);
     procedure btFecharClick(Sender: TObject);
-    procedure Button1Click(Sender: TObject);
+    procedure btPesquisarClick(Sender: TObject);
     procedure FormCreate(Sender: TObject);
   private
     // ---- Controle para evitar gravações repetidas ----
@@ -184,7 +184,7 @@ begin
   end;
 end;
 
-procedure Tfrmmedidas.Button1Click(Sender: TObject);
+procedure Tfrmmedidas.btPesquisarClick(Sender: TObject);
 var
   AIdDevice : Int64;
   Nome      : string;
@@ -380,64 +380,38 @@ end;
 
 procedure Tfrmmedidas.GeraGraficoHumidade;
 var
-  Serie   : TNiceSeries;
-  ds      : TDataSet;
-  bmk     : TBookmark;
-  dt      : TDateTime;
-  val     : Double;
-  xSec    : Integer;  // 1..86400 (segundos desde 00:00:00)
+  SerieHum : TNiceSeries;
+  ds       : TDataSet;
+  bmk      : TBookmark;
+  dt       : TDateTime;
+  dtBase   : TDateTime;
+  val      : Double;
+  tipo     : Integer;
+  XHora    : Double;
+  temBase  : Boolean;
 begin
-  ds := dmBase.zqrymedidas;
+  ds := dmbase.zqrymedidas;
   if (ds = nil) or ds.IsEmpty then
   begin
     ShowMessage('Não há medidas carregadas para gerar o gráfico.');
     Exit;
   end;
 
-  // Limpa e configura o gráfico
-  NiceChart2.Clear;
-  NiceChart2.Title            := 'Umidade x Tempo (tipomedida=1)';
-  NiceChart2.AxisXTitle       := 'Segundos desde 00:00:00 (1..86400)';
-  NiceChart2.AxisYTitle       := 'Umidade (%)';
-  NiceChart2.ShowLegend       := True;
-  NiceChart2.ShowXGrid        := True;
-  NiceChart2.ShowYGrid        := True;
-  NiceChart2.AxisXOnePerValue := True;
-
-  Serie := NiceChart2.AddSeries(skLine);
-  Serie.Caption   := 'Umidade (%)';
-  Serie.LineWidth := 2;
-
-  // Percorre o dataset adicionando SOMENTE tipomedida = 1 (umidade)
+  // Acha a primeira data de umidade (tipomedida=1) como base
+  temBase := False;
   bmk := ds.GetBookmark;
   try
     ds.DisableControls;
     ds.First;
     while not ds.EOF do
     begin
-      if (not ds.FieldByName('dthrcad').IsNull) and
-         (not ds.FieldByName('valor').IsNull) and
-         (ds.FieldByName('tipomedida').AsInteger = 1) then
+      tipo := ds.FieldByName('tipomedida').AsInteger;
+      if tipo = 1 then
       begin
-        dt  := ds.FieldByName('dthrcad').AsDateTime;
-        val := ds.FieldByName('valor').AsFloat;
-
-        // Proteções contra valores inválidos
-        if (dt > 0) and (not IsNan(val)) and (not IsInfinite(val)) then
-        begin
-          // X = segundos desde o início do dia (1..86400)
-          xSec := SecondsBetween(StartOfTheDay(dt), dt) + 1;
-          if xSec < 1 then xSec := 1
-          else if xSec > 86400 then xSec := 86400;
-
-          Serie.AddXY(
-            Double(xSec),
-            val,
-            FormatDateTime('dd/mm/yy hh:nn:ss', dt) // hint
-          );
-        end;
+        dtBase := ds.FieldByName('dthrcad').AsDateTime;
+        temBase := True;
+        Break;
       end;
-
       ds.Next;
     end;
   finally
@@ -446,13 +420,57 @@ begin
     ds.EnableControls;
   end;
 
-  // Repintar, se suportado
+  if not temBase then
+  begin
+    ShowMessage('Nenhuma medida de umidade encontrada (tipomedida=1).');
+    Exit;
+  end;
+
+  NiceChart2.BeginUpdate;
   try
-    NiceChart2.Invalidate;
-  except
-    // ignora se não existir
+    NiceChart2.Clear;
+
+    NiceChart2.Title            := 'Umidade x Tempo';
+    NiceChart2.AxisXTitle       := 'Horas desde a primeira leitura';
+    NiceChart2.AxisYTitle       := 'Umidade (%)';
+    NiceChart2.AxisXOnePerValue := True;
+    NiceChart2.ShowLegend       := True;
+    NiceChart2.ShowXGrid        := True;
+    NiceChart2.ShowYGrid        := True;
+
+    SerieHum := NiceChart2.AddSeries(skLine);
+    SerieHum.Caption   := 'Umidade (%)';
+    SerieHum.LineWidth := 2;
+
+    // Alimenta apenas tipomedida=1 (umidade)
+    bmk := ds.GetBookmark;
+    try
+      ds.DisableControls;
+      ds.First;
+      while not ds.EOF do
+      begin
+        tipo := ds.FieldByName('tipomedida').AsInteger;
+        if tipo = 1 then
+        begin
+          dt  := ds.FieldByName('dthrcad').AsDateTime;
+          val := ds.FieldByName('valor').AsFloat;
+
+          // X = horas decorridas desde a base
+          XHora := (dt - dtBase) * 24.0; // intervalo em horas
+          SerieHum.AddXY(XHora + 1, val, FormatDateTime('dd/mm/yy hh:nn', dt));
+        end;
+        ds.Next;
+      end;
+    finally
+      if ds.BookmarkValid(bmk) then ds.GotoBookmark(bmk);
+      ds.FreeBookmark(bmk);
+      ds.EnableControls;
+    end;
+  finally
+    NiceChart2.EndUpdate;
   end;
 end;
+
 
 end.
 

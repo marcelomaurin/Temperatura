@@ -8,7 +8,7 @@ uses
   Classes, SysUtils, StrUtils, ZConnection, ZDataset, ZAbstractRODataset,
   DataPortSerial, DataPortHTTP, DateUtils,
   fphttpclient, opensslsockets, fpjson, jsonparser, DB,
-  setmain, DataPortUART, LazSerial, LazSynaSer;
+  setmain, DataPortUART, LazSerial, LazSynaSer, Math;
 
 type
   TOnTcpJsonReceived = procedure(Sender: TObject; const AJson: TJSONData) of object;
@@ -36,9 +36,15 @@ type
     FHttpTimeoutMs: Integer;
     FOnTcpJsonReceived: TOnTcpJsonReceived;
 
-
     FSerialBuf: RawByteString;
     FLines: TStringList;
+
+    // ==== CACHE último valor por (device,tipo) ====
+    FLastVals: TStringList; // itens no formato "id:tipo=valor"
+    function  LastKey(const AIdDevice: Int64; ATipoMedida: Integer): string;
+    function  TryGetLastFromCache(const Key: string; out V: Double): Boolean;
+    procedure UpdateCache(const Key: string; const V: Double);
+    procedure ResetLastValues;
 
     function BuildUrl(const APath: string): string;
 
@@ -49,8 +55,8 @@ type
 
     procedure ProcessSerialBuffer;
   public
-
     serialdevid : integer; //Posicao da serial devid
+
     { ====== BANCO ====== }
     procedure AplicaConfigBanco;
     procedure InsertDevice;
@@ -60,18 +66,6 @@ type
     function AtualizaConSerial(const AReabrir: Boolean = True): Boolean;
 
     function GetIDPorta(const AID: Int64): string;
-
-    //function SerialConfig(const APort: string; ABaud: Integer): Boolean;
-    //function SerialOpen: Boolean;
-    //procedure SerialClose;
-    //function SerialWrite(const S: RawByteString): Boolean;
-
-    //function SerialReadLine(out S: string; const TimeoutMs: Integer = 1000): Boolean;
-    //function SerialWriteRead(const OutS: RawByteString; out InLine: string; const TimeoutMs: Integer = 1000): Boolean;
-
-    //procedure SerialFlushBuffer;
-    //function SerialHasLine: Boolean;
-    //function SerialPopLine(out L: string): Boolean;
 
     { ====== TCP/HTTP + JSON ====== }
     procedure HttpConfig(const ABaseUrl: string; const ATimeoutMs: Integer = 5000);
@@ -93,6 +87,7 @@ type
     function ListaPortasTipo2(out APortas: TStringList): Boolean;
     function ConsultaIPTempHum(const AIp: string; out AJson: TJSONData): Boolean;
 
+    // <- ALTERADA: só grava se mudou; retorna 0 quando não houve mudança
     function RegistraMedida(const AIdDevice: Int64; ATipoMedida: Integer;
       const AValor: Double; const ADthrCad: TDateTime = 0): Int64;
 
@@ -177,7 +172,6 @@ var
   porta: string;
   idv:   Int64;
 begin
-  // como é "out", SEMPRE crie uma nova lista
   if Assigned(APortas) then
     FreeAndNil(APortas);
   APortas := TStringList.Create;
@@ -210,13 +204,11 @@ begin
   end;
 end;
 
-
 function TdmBase.ListaPortasTipo2(out APortas: TStringList): Boolean;
 var
   porta: string;
   idv:   Int64;
 begin
-  // como é "out", SEMPRE crie uma nova lista
   if Assigned(APortas) then
     FreeAndNil(APortas);
   APortas := TStringList.Create;
@@ -276,12 +268,59 @@ begin
   end;
 end;
 
+{ ========== CACHE helpers ========== }
+
+function TdmBase.LastKey(const AIdDevice: Int64; ATipoMedida: Integer): string;
+begin
+  Result := IntToStr(AIdDevice) + ':' + IntToStr(ATipoMedida);
+end;
+
+function TdmBase.TryGetLastFromCache(const Key: string; out V: Double): Boolean;
+var
+  ix: Integer;
+begin
+  Result := False;
+  V := 0;
+  if not Assigned(FLastVals) then Exit;
+  ix := FLastVals.IndexOfName(Key);
+  if ix >= 0 then
+    Result := TryStrToFloat(FLastVals.ValueFromIndex[ix], V);
+end;
+
+procedure TdmBase.UpdateCache(const Key: string; const V: Double);
+var
+  ix: Integer;
+  fs: TFormatSettings;
+begin
+  if not Assigned(FLastVals) then Exit;
+  fs := DefaultFormatSettings;
+  fs.DecimalSeparator := '.'; // grava invariável
+  ix := FLastVals.IndexOfName(Key);
+  if ix >= 0 then
+    FLastVals.ValueFromIndex[ix] := FloatToStr(V, fs)
+  else
+    FLastVals.Add(Key + '=' + FloatToStr(V, fs));
+end;
+
+procedure TdmBase.ResetLastValues;
+begin
+  if Assigned(FLastVals) then FLastVals.Clear;
+end;
+
 function TdmBase.RegistraMedida(const AIdDevice: Int64; ATipoMedida: Integer;
   const AValor: Double; const ADthrCad: TDateTime): Int64;
 var
   d: TDateTime;
+  key: string;
+  lastV: Double;
+  hasLast: Boolean;
+  epsilon: Double;
 begin
+  // Retornos: -1 erro; 0 = não inseriu (sem mudança); >0 id inserido
   Result := -1;
+  if (AIdDevice <= 0) then Exit;
+
+  epsilon := 0.01; // tolerância para “mudou”
 
   if (not ZConnection1.Connected) then
   try
@@ -290,6 +329,45 @@ begin
     Exit;
   end;
 
+  key := LastKey(AIdDevice, ATipoMedida);
+
+  // 1) cache
+  hasLast := TryGetLastFromCache(key, lastV);
+
+  // 2) se não tem no cache, busca último no banco (bootstrap)
+  if not hasLast then
+  begin
+    zqryaux.Close;
+    zqryaux.SQL.Text :=
+      'select valor '+
+      '  from medidas '+
+      ' where id_device = :iddev '+
+      '   and tipomedida = :t '+
+      ' order by dthrcad desc, rowid desc '+
+      ' limit 1';
+    zqryaux.ParamByName('iddev').AsLargeInt := AIdDevice;
+    zqryaux.ParamByName('t').AsInteger      := ATipoMedida;
+    try
+      zqryaux.Open;
+      if not zqryaux.EOF then
+      begin
+        lastV   := zqryaux.FieldByName('valor').AsFloat;
+        hasLast := True;
+        UpdateCache(key, lastV);
+      end;
+    finally
+      zqryaux.Close;
+    end;
+  end;
+
+  // 3) comparação
+  if hasLast and (Abs(AValor - lastV) < epsilon) then
+  begin
+    Result := 0; // sem mudança -> não grava
+    Exit;
+  end;
+
+  // 4) insere
   if ADthrCad > 0 then d := ADthrCad else d := Now;
 
   zqryaux.Close;
@@ -307,7 +385,11 @@ begin
     zqryaux.Open;
     try
       if not zqryaux.FieldByName('id').IsNull then
+      begin
         Result := zqryaux.FieldByName('id').AsLargeInt;
+        // Atualiza cache somente após sucesso
+        UpdateCache(key, AValor);
+      end;
     finally
       zqryaux.Close;
     end;
@@ -328,15 +410,18 @@ begin
   FSerialBuf := '';
   FLines     := TStringList.Create;
 
-  // liga o callback do serial
-  //DataPortSerial1.OnDataAppear := @DataPortSerial1DataAppear;
-
-  //AtualizaConSerial(True);
+  // inicializa cache de últimos valores
+  FLastVals := TStringList.Create;
+  FLastVals.CaseSensitive := False;
+  FLastVals.Sorted        := False;
+  FLastVals.Duplicates    := dupIgnore;
+  ResetLastValues;
 end;
 
 procedure TdmBase.DataModuleDestroy(Sender: TObject);
 begin
   FreeAndNil(FLines);
+  FreeAndNil(FLastVals);
 end;
 
 procedure TdmBase.DataPortSerial1DataAppear(Sender: TObject; const AMsg: AnsiString);
@@ -361,7 +446,6 @@ procedure TdmBase.LazSerial1RxData(Sender: TObject);
     Result := False;
     numStr := '';
 
-    // coleta apenas dígitos, sinal e separador decimal
     for i := 1 to Length(S) do
     begin
       ch := S[i];
@@ -369,7 +453,6 @@ procedure TdmBase.LazSerial1RxData(Sender: TObject);
         numStr := numStr + ch
       else
       begin
-        // se já coletou algo e encontrou outro char, para
         if numStr <> '' then Break;
       end;
     end;
@@ -377,21 +460,17 @@ procedure TdmBase.LazSerial1RxData(Sender: TObject);
     numStr := Trim(numStr);
     if numStr = '' then Exit;
 
-    // tenta com '.' (normaliza ',' para '.')
     fs := DefaultFormatSettings;
     fs.DecimalSeparator := '.';
     Result := TryStrToFloat(StringReplace(numStr, ',', '.', [rfReplaceAll]), V, fs);
     if not Result then
     begin
-      // tentativa alternativa (mantém compat)
       fs := DefaultFormatSettings;
       fs.DecimalSeparator := ',';
       Result := TryStrToFloat(StringReplace(numStr, '.', ',', [rfReplaceAll]), V, fs);
     end;
   end;
 
-  // Corta o texto depois de "Token" até encontrar um dos caracteres de parada
-  // (não usamos '°' aqui para evitar erro de ordinal no FPC)
   function SliceAfterTokenUntil(const S, Token: string; const Stops: TSysCharSet): string;
   var
     p, j: Integer;
@@ -401,13 +480,11 @@ procedure TdmBase.LazSerial1RxData(Sender: TObject);
     if p <= 0 then Exit;
     Inc(p, Length(Token));
     j := p;
-    // avança até fim ou até um caractere de parada
     while (j <= Length(S)) and not (S[j] in Stops) do
       Inc(j);
     Result := Trim(Copy(S, p, j - p));
   end;
 
-  // Devolve a última linha não vazia de um buffer com quebras CR/LF variadas
   function LastNonEmptyLine(const Buf: string): string;
   var
     i, j: Integer;
@@ -415,12 +492,10 @@ procedure TdmBase.LazSerial1RxData(Sender: TObject);
     Result := '';
     if Buf = '' then Exit;
 
-    // pula quebras finais
     i := Length(Buf);
     while (i > 0) and (Buf[i] in [#10, #13, ' ']) do Dec(i);
     if i <= 0 then Exit;
 
-    // acha começo da linha
     j := i;
     while (j > 0) and not (Buf[j] in [#10, #13]) do Dec(j);
 
@@ -438,40 +513,31 @@ begin
   frmmain.RegistraLog(raw);
   if raw = '' then Exit;
 
-  // pega a última linha não-vazia
   linha := LastNonEmptyLine(raw);
   if linha = '' then Exit;
 
-  // Exemplo esperado:
+  // Exemplo:
   // [DHT] T=24.8C -> cal=24.8C | H=45.1% -> cal=45.1%
-  // Capturamos apenas o bruto após T= e H=, parando em 'C', '%' ou espaço.
-  sTemp := SliceAfterTokenUntil(linha, 'T=', ['C','c',' ']);  // para em C ou espaço
-  sHum  := SliceAfterTokenUntil(linha, 'H=', ['%',' ']);      // para em % ou espaço
+  //sTemp := SliceAfterTokenUntil(linha, 'T=', ['C','c',' ']);
+  sTemp := SliceAfterTokenUntil(linha, 'T=', ['C','c']);
+  //sHum  := SliceAfterTokenUntil(linha, 'H=', ['%',' ']);
+  sHum  := SliceAfterTokenUntil(linha, 'H=', ['%']);
 
   okT := ExtractNumber(sTemp, tempVal);
   okH := ExtractNumber(sHum,  humVal);
 
-  // (opcional) debug interno
-  // WriteLn(Format('RX linha="%s"  T="%s"->%s  H="%s"->%s',
-  //   [linha, sTemp, BoolToStr(okT, True), sHum, BoolToStr(okH, True)]));
-
-  // Registra medidas usando o DevID global (serialDevId)
-  // 0 = temperatura, 1 = umidade
-  if (serialDevId > 0) then
+  if (serialdevid > 0) then
   begin
     if okT then
-      dmBase.RegistraMedida(serialDevId, 0, tempVal);
+      dmBase.RegistraMedida(serialdevid, 0, tempVal);
     if okH then
-      dmBase.RegistraMedida(serialDevId, 1, humVal);
+      dmBase.RegistraMedida(serialdevid, 1, humVal);
   end;
 end;
-
-
 
 procedure TdmBase.LazSerial1Status(Sender: TObject; Reason: THookSerialReason;
   const Value: string);
 begin
-
 end;
 
 procedure TdmBase.ProcessSerialBuffer;
@@ -506,7 +572,6 @@ begin
 
   ZConnection1.Protocol := 'sqlite';
 
-  // usa main.FSETMAIN (criado no main.FormCreate)
   if Assigned(FSETMAIN) and (Trim(FSETMAIN.LocalBanco) <> '') then
   begin
     ZConnection1.Database := FSETMAIN.LocalBanco;
@@ -605,12 +670,7 @@ begin
   except end;
 
   try
-    //LazSerial1.Port     := FSETMAIN.COMPORT;
-    //LazSerial1.BaudRate := BaudFromCode(FSETMAIN.BAUDRATE);
-    //LazSerial1.DataBits := DataBitsFromCode(FSETMAIN.DATABIT);
-    //LazSerial1.Parity   := ParityCharFromCode(FSETMAIN.PARIDADE);
-    //LazSerial1.StopBits := StopBitsFromCode(FSETMAIN.STOPBIT);
-
+    // configure aqui se necessário
     if AReabrir then
       LazSerial1.Open;
 
@@ -637,11 +697,9 @@ begin
       Result := Trim(zqryaux.FieldByName('porta').AsString);
   except
     on E: Exception do
-      // log opcional, mas evita crash
       WriteLn('Erro em GetIDPorta: ', E.Message);
   end;
 end;
-
 
 function TdmBase.BuildUrl(const APath: string): string;
 var
@@ -786,7 +844,6 @@ begin
   try
     C.AddHeader('Accept','*/*');
     C.ConnectTimeout := FHttpTimeoutMs;
-    //C.ReadTimeout    := FHttpTimeoutMs;
     Url := BuildUrl(APath);
     try
       AResponseText := C.Get(Url);

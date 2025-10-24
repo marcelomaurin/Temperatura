@@ -485,27 +485,12 @@ procedure TdmBase.LazSerial1RxData(Sender: TObject);
     Result := Trim(Copy(S, p, j - p));
   end;
 
-  function LastNonEmptyLine(const Buf: string): string;
-  var
-    i, j: Integer;
-  begin
-    Result := '';
-    if Buf = '' then Exit;
-
-    i := Length(Buf);
-    while (i > 0) and (Buf[i] in [#10, #13, ' ']) do Dec(i);
-    if i <= 0 then Exit;
-
-    j := i;
-    while (j > 0) and not (Buf[j] in [#10, #13]) do Dec(j);
-
-    Result := Trim(Copy(Buf, j+1, i-j));
-  end;
-
 var
-  raw, linha, sTemp, sHum: string;
+  raw, norm, linha, sTemp, sHum: string;
   tempVal, humVal: Double;
   okT, okH: Boolean;
+  sl: TStringList;
+  i: Integer;
 begin
   if not LazSerial1.DataAvailable then Exit;
 
@@ -513,25 +498,43 @@ begin
   frmmain.RegistraLog(raw);
   if raw = '' then Exit;
 
-  linha := LastNonEmptyLine(raw);
-  if linha = '' then Exit;
+  // Normaliza quebras de linha para LF e percorre cada linha
+  norm := StringReplace(raw, #13#10, #10, [rfReplaceAll]);
+  norm := StringReplace(norm, #13, #10, [rfReplaceAll]);
 
-  // Exemplo:
-  // [DHT] T=24.8C -> cal=24.8C | H=45.1% -> cal=45.1%
-  sTemp := SliceAfterTokenUntil(linha, 'T=', ['C','c',' ']);
-  sHum  := SliceAfterTokenUntil(linha, 'H=', ['%',' ']);
+  sl := TStringList.Create;
+  try
+    {$IFDEF WINDOWS}
+    sl.LineBreak := #10; // garante que #10 seja tratado como separador no Windows
+    {$ENDIF}
+    sl.Text := norm;
 
-  okT := ExtractNumber(sTemp, tempVal);
-  okH := ExtractNumber(sHum,  humVal);
+    for i := 0 to sl.Count - 1 do
+    begin
+      linha := Trim(sl[i]);
+      if linha = '' then Continue;
 
-  if (serialdevid > 0) then
-  begin
-    if okT then
-      dmBase.RegistraMedida(serialdevid, 0, tempVal);
-    if okH then
-      dmBase.RegistraMedida(serialdevid, 1, humVal);
+      // Exemplo esperado:
+      // [DHT] T=24.8C -> cal=24.8C | H=45.1% -> cal=45.1%
+      sTemp := SliceAfterTokenUntil(linha, 'T=', ['C','c']);
+      sHum  := SliceAfterTokenUntil(linha, 'H=', ['%']);
+
+      okT := ExtractNumber(sTemp, tempVal);
+      okH := ExtractNumber(sHum,  humVal);
+
+      if (serialdevid > 0) then
+      begin
+        if okT then
+          dmBase.RegistraMedida(serialdevid, 0, tempVal);
+        if okH then
+          dmBase.RegistraMedida(serialdevid, 1, humVal);
+      end;
+    end;
+  finally
+    sl.Free;
   end;
 end;
+
 
 procedure TdmBase.LazSerial1Status(Sender: TObject; Reason: THookSerialReason;
   const Value: string);
