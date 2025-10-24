@@ -9,7 +9,7 @@ uses
   PopupNotifier, ComCtrls, Menus, StdCtrls, DBCtrls, AnchorDockPanel,
   UniqueInstance, uplaysound, untsalesSwitch, DataPortSerial, DataPortHTTP,
   AdvLed, LedNumber, NiceSideBar, medidas, base, setmain, caddevice, fpjson,
-  jsonparser, DB, hint, configuracoes; // <-- garantir estes na seção implementation uses;
+  jsonparser, DB, hint, configuracoes, reldiario; // <-- garantir estes na seção implementation uses;
 
 Const
   Versao =  '0.5';
@@ -65,6 +65,7 @@ type
     procedure MenuItem3Click(Sender: TObject);
     procedure MenuItem7Click(Sender: TObject);
     procedure MenuItem8Click(Sender: TObject);
+    procedure MenuItem9Click(Sender: TObject);
     procedure Timer1Timer(Sender: TObject);
     procedure tmProcessaStartTimer(Sender: TObject);
     procedure tmProcessaStopTimer(Sender: TObject);
@@ -87,6 +88,7 @@ type
     procedure ChamaMedidas();
     procedure Configuracoes();
     procedure RegistraLog(info : string);
+    procedure ChamaRelatorioDiario();
   end;
 
 var
@@ -149,6 +151,7 @@ begin
   if(Section.OriginalIndex=2) then
   begin
      //Relatorios
+     ChamaRelatorioDiario();
   end;
   if(Section.OriginalIndex=3) then
   begin
@@ -175,6 +178,11 @@ end;
 procedure Tfrmmain.MenuItem8Click(Sender: TObject);
 begin
      ChamaMedidas();
+end;
+
+procedure Tfrmmain.MenuItem9Click(Sender: TObject);
+begin
+  ChamaRelatorioDiario();
 end;
 
 procedure Tfrmmain.Timer1Timer(Sender: TObject);
@@ -242,6 +250,13 @@ end;
 procedure Tfrmmain.RegistraLog(info: string);
 begin
   meLog.Append(datetimetostr(now)+' '+info);
+end;
+
+procedure Tfrmmain.ChamaRelatorioDiario();
+begin
+   frmRelDiario := TfrmRelDiario.create(self);
+   frmRelDiario.showmodal;
+   FreeAndNil(frmRelDiario);
 end;
 
 function Tfrmmain.AdicionaDevice(const ANome: string; APtr: Pointer): TTreeNode;

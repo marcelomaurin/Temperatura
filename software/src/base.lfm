@@ -66,9 +66,53 @@ object dmBase: TdmBase
   end
   object zqrymedidas: TZQuery
     Connection = ZConnection1
-    Params = <>
+    Active = True
+    SQL.Strings = (
+      'WITH base AS ('
+      '  SELECT'
+      '    date(m.dthrcad) AS dia_iso,'
+      '    m.tipomedida    AS tipomedida,'
+      '    m.valor         AS valor,'
+      '    m.dthrcad       AS dthrcad,'
+      '    ROW_NUMBER() OVER ('
+      '      PARTITION BY date(m.dthrcad), m.tipomedida'
+      '      ORDER BY m.dthrcad DESC'
+      '    ) AS rn'
+      '  FROM medidas m'
+      '  WHERE m.dthrcad >= :p_ini'
+      '    AND m.dthrcad <= :p_fim'
+      ')'
+      'SELECT'
+      '  CAST(strftime(''%d/%m/%Y'', b.dia_iso) AS CHAR(10)) AS dia,'
+      '  CAST(CASE b.tipomedida'
+      '         WHEN 0 THEN ''Temperatura'''
+      '         WHEN 1 THEN ''Humidade'''
+      '         ELSE ''Desconhecido'''
+      '       END AS CHAR(12)) AS tipo,'
+      '  MIN(b.valor) AS valor_min,'
+      '  MAX(b.valor) AS valor_max,'
+      '  MAX(CASE WHEN b.rn = 1 THEN b.valor END) AS valor_ultimo,'
+      '  b.dia_iso AS dia_ord'
+      'FROM base b'
+      'GROUP BY b.dia_iso, b.tipomedida'
+      'ORDER BY b.dia_iso, b.tipomedida;'
+    )
+    Params = <    
+      item
+        Name = 'p_ini'
+      end    
+      item
+        Name = 'p_fim'
+      end>
     Left = 32
     Top = 312
+    ParamData = <    
+      item
+        Name = 'p_ini'
+      end    
+      item
+        Name = 'p_fim'
+      end>
   end
   object LazSerial1: TLazSerial
     Active = False

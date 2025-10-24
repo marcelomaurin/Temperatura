@@ -93,6 +93,7 @@ type
 
     function BuscaMedidas(const AIdDevice: integer;
       const ADataInicio, ADataFim: TDateTime): Boolean;
+    function GeraRelatorioDiario(const ADataInicio, ADataFim: TDateTime): Boolean;
     function BuscaDeviceIdPorNome(const ANome: string): Int64;
   end;
 
@@ -485,27 +486,12 @@ procedure TdmBase.LazSerial1RxData(Sender: TObject);
     Result := Trim(Copy(S, p, j - p));
   end;
 
-  function LastNonEmptyLine(const Buf: string): string;
-  var
-    i, j: Integer;
-  begin
-    Result := '';
-    if Buf = '' then Exit;
-
-    i := Length(Buf);
-    while (i > 0) and (Buf[i] in [#10, #13, ' ']) do Dec(i);
-    if i <= 0 then Exit;
-
-    j := i;
-    while (j > 0) and not (Buf[j] in [#10, #13]) do Dec(j);
-
-    Result := Trim(Copy(Buf, j+1, i-j));
-  end;
-
 var
-  raw, linha, sTemp, sHum: string;
+  raw, norm, linha, sTemp, sHum: string;
   tempVal, humVal: Double;
   okT, okH: Boolean;
+  sl: TStringList;
+  i: Integer;
 begin
   if not LazSerial1.DataAvailable then Exit;
 
@@ -513,27 +499,43 @@ begin
   frmmain.RegistraLog(raw);
   if raw = '' then Exit;
 
-  linha := LastNonEmptyLine(raw);
-  if linha = '' then Exit;
+  // Normaliza quebras de linha para LF e percorre cada linha
+  norm := StringReplace(raw, #13#10, #10, [rfReplaceAll]);
+  norm := StringReplace(norm, #13, #10, [rfReplaceAll]);
 
-  // Exemplo:
-  // [DHT] T=24.8C -> cal=24.8C | H=45.1% -> cal=45.1%
-  //sTemp := SliceAfterTokenUntil(linha, 'T=', ['C','c',' ']);
-  sTemp := SliceAfterTokenUntil(linha, 'T=', ['C','c']);
-  //sHum  := SliceAfterTokenUntil(linha, 'H=', ['%',' ']);
-  sHum  := SliceAfterTokenUntil(linha, 'H=', ['%']);
+  sl := TStringList.Create;
+  try
+    {$IFDEF WINDOWS}
+    sl.LineBreak := #10; // garante que #10 seja tratado como separador no Windows
+    {$ENDIF}
+    sl.Text := norm;
 
-  okT := ExtractNumber(sTemp, tempVal);
-  okH := ExtractNumber(sHum,  humVal);
+    for i := 0 to sl.Count - 1 do
+    begin
+      linha := Trim(sl[i]);
+      if linha = '' then Continue;
 
-  if (serialdevid > 0) then
-  begin
-    if okT then
-      dmBase.RegistraMedida(serialdevid, 0, tempVal);
-    if okH then
-      dmBase.RegistraMedida(serialdevid, 1, humVal);
+      // Exemplo esperado:
+      // [DHT] T=24.8C -> cal=24.8C | H=45.1% -> cal=45.1%
+      sTemp := SliceAfterTokenUntil(linha, 'T=', ['C','c']);
+      sHum  := SliceAfterTokenUntil(linha, 'H=', ['%']);
+
+      okT := ExtractNumber(sTemp, tempVal);
+      okH := ExtractNumber(sHum,  humVal);
+
+      if (serialdevid > 0) then
+      begin
+        if okT then
+          dmBase.RegistraMedida(serialdevid, 0, tempVal);
+        if okH then
+          dmBase.RegistraMedida(serialdevid, 1, humVal);
+      end;
+    end;
+  finally
+    sl.Free;
   end;
 end;
+
 
 procedure TdmBase.LazSerial1Status(Sender: TObject; Reason: THookSerialReason;
   const Value: string);
@@ -788,6 +790,53 @@ begin
   zqrymedidas.Open;
   Result := not zqrymedidas.IsEmpty;
 end;
+
+function TdmBase.GeraRelatorioDiario(const ADataInicio, ADataFim: TDateTime): Boolean;
+begin
+  zqrymedidas.Close;
+  zqrymedidas.SQL.Text :=
+    'WITH base AS ('+
+    '  SELECT '+
+    '    date(m.dthrcad) AS dia_iso,'+          //-- YYYY-MM-DD para agrupar/ordenar
+    '    m.tipomedida    AS tipomedida,'+
+    '    m.valor         AS valor,'+
+    '    m.dthrcad       AS dthrcad,'+
+    '    ROW_NUMBER() OVER ('+
+    '      PARTITION BY date(m.dthrcad), m.tipomedida '+
+    '      ORDER BY m.dthrcad DESC '+
+    '    ) AS rn '+
+    '  FROM medidas m '+
+    '  WHERE m.dthrcad >= :p_ini AND m.dthrcad <= :p_fim '+
+    ') '+
+    'SELECT '+
+    // dia exibido como dd/mm/YYYY e tipado como CHAR(10) p/ evitar Memo
+    '  CAST(strftime(''%d/%m/%Y'', b.dia_iso) AS CHAR(10)) AS dia, '+
+    // tipo como CHAR(12): "Temperatura" (11) / "Humidade" (8)
+    '  CAST(CASE b.tipomedida '+
+    '         WHEN 0 THEN ''Temperatura'' '+
+    '         WHEN 1 THEN ''Humidade'' '+
+    '         ELSE ''Desconhecido'' '+
+    '      END AS CHAR(12)) AS tipo, '+
+    '  MIN(b.valor) AS valor_min, '+
+    '  MAX(b.valor) AS valor_max, '+
+    '  MAX(CASE WHEN b.rn = 1 THEN b.valor END) AS valor_ultimo, '+
+    // coluna oculta só para ordenar corretamente por data
+    '  b.dia_iso AS dia_ord '+
+    'FROM base b '+
+    'GROUP BY b.dia_iso, b.tipomedida '+
+    'ORDER BY b.dia_iso, b.tipomedida;';
+
+  zqrymedidas.ParamByName('p_ini').AsDateTime := StartOfTheDay(ADataInicio);
+  zqrymedidas.ParamByName('p_fim').AsDateTime := EndOfTheDay(ADataFim);
+
+  zqrymedidas.Open;
+  Result := not zqrymedidas.IsEmpty;
+end;
+
+
+
+
+
 
 { ---------- INSERT DEVICE ---------- }
 

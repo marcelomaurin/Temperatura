@@ -6,6 +6,7 @@ object frmmedidas: Tfrmmedidas
   Caption = 'Medidas'
   ClientHeight = 493
   ClientWidth = 826
+  Position = poMainFormCenter
   LCLVersion = '4.0.0.4'
   OnCreate = FormCreate
   object Panel1: TPanel

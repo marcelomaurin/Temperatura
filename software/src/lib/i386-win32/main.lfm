@@ -7,6 +7,7 @@ object frmmain: Tfrmmain
   ClientHeight = 622
   ClientWidth = 910
   Menu = MainMenu1
+  Position = poMainFormCenter
   LCLVersion = '4.0.0.4'
   OnCreate = FormCreate
   OnDestroy = FormDestroy
@@ -42,8 +43,8 @@ object frmmain: Tfrmmain
         item
           Alignment = taCenter
           ImageIndex = 3
-          Text = 'Relatórios'
-          Width = 90
+          Text = 'Relatório Diário'
+          Width = 120
         end      
         item
           Alignment = taCenter
@@ -280,6 +281,7 @@ object frmmain: Tfrmmain
       object MenuItem9: TMenuItem
         Caption = 'Relatório Diario'
         ImageIndex = 1
+        OnClick = MenuItem9Click
       end
     end
   end

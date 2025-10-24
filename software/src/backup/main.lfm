@@ -42,8 +42,8 @@ object frmmain: Tfrmmain
         item
           Alignment = taCenter
           ImageIndex = 3
-          Text = 'Relatórios'
-          Width = 90
+          Text = 'Relatório Diário'
+          Width = 120
         end      
         item
           Alignment = taCenter
@@ -124,9 +124,9 @@ object frmmain: Tfrmmain
       Height = 520
       Top = 1
       Width = 708
-      ActivePage = tbStatus
+      ActivePage = tsSobre
       Align = alClient
-      TabIndex = 1
+      TabIndex = 0
       TabOrder = 0
       object tsSobre: TTabSheet
         Caption = 'Sobre'
@@ -280,6 +280,7 @@ object frmmain: Tfrmmain
       object MenuItem9: TMenuItem
         Caption = 'Relatório Diario'
         ImageIndex = 1
+        OnClick = MenuItem9Click
       end
     end
   end

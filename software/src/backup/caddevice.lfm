@@ -138,9 +138,9 @@ object frmcaddevice: Tfrmcaddevice
       Height = 315
       Top = 1
       Width = 932
-      ActivePage = tbEdit
+      ActivePage = tbPesquisa
       Align = alClient
-      TabIndex = 1
+      TabIndex = 0
       TabOrder = 0
       object tbPesquisa: TTabSheet
         Caption = 'Pesquisa'

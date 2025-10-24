@@ -2,7 +2,7 @@
 ; SEE THE DOCUMENTATION FOR DETAILS ON CREATING INNO SETUP SCRIPT FILES!
 
 #define MyAppName "srvTemp"
-#define MyAppVersion "0.4"
+#define MyAppVersion "0.5"
 #define MyAppPublisher "MAURINSOFT"
 #define MyAppURL "http://maurinsoft.com.br"
 ; O executável instalado é Temperatura.exe (mantido coerente com [Files])
@@ -22,7 +22,7 @@ AppUpdatesURL={#MyAppURL}
 ; Instala em Program Files (auto escolhe x86/x64 adequado)
 DefaultDirName={autopf}\{#MyAppName}
 DisableProgramGroupPage=yes
-OutputBaseFilename=srvTemp_setup_04
+OutputBaseFilename=srvTemp_setup_05
 Compression=lzma
 SolidCompression=yes
 UninstallDisplayIcon={app}\{#MyAppExeName}

@@ -93,6 +93,7 @@ type
 
     function BuscaMedidas(const AIdDevice: integer;
       const ADataInicio, ADataFim: TDateTime): Boolean;
+    function GeraRelatorioDiario(const ADataInicio, ADataFim: TDateTime): Boolean;
     function BuscaDeviceIdPorNome(const ANome: string): Int64;
   end;
 
@@ -789,6 +790,53 @@ begin
   zqrymedidas.Open;
   Result := not zqrymedidas.IsEmpty;
 end;
+
+function TdmBase.GeraRelatorioDiario(const ADataInicio, ADataFim: TDateTime): Boolean;
+begin
+  zqrymedidas.Close;
+  zqrymedidas.SQL.Text :=
+    'WITH base AS ('+
+    '  SELECT '+
+    '    date(m.dthrcad) AS dia_iso,'+          //-- YYYY-MM-DD para agrupar/ordenar
+    '    m.tipomedida    AS tipomedida,'+
+    '    m.valor         AS valor,'+
+    '    m.dthrcad       AS dthrcad,'+
+    '    ROW_NUMBER() OVER ('+
+    '      PARTITION BY date(m.dthrcad), m.tipomedida '+
+    '      ORDER BY m.dthrcad DESC '+
+    '    ) AS rn '+
+    '  FROM medidas m '+
+    '  WHERE m.dthrcad >= :p_ini AND m.dthrcad <= :p_fim '+
+    ') '+
+    'SELECT '+
+    // dia exibido como dd/mm/YYYY e tipado como CHAR(10) p/ evitar Memo
+    '  CAST(strftime(''%d/%m/%Y'', b.dia_iso) AS CHAR(10)) AS dia, '+
+    // tipo como CHAR(12): "Temperatura" (11) / "Humidade" (8)
+    '  CAST(CASE b.tipomedida '+
+    '         WHEN 0 THEN ''Temperatura'' '+
+    '         WHEN 1 THEN ''Humidade'' '+
+    '         ELSE ''Desconhecido'' '+
+    '      END AS CHAR(12)) AS tipo, '+
+    '  MIN(b.valor) AS valor_min, '+
+    '  MAX(b.valor) AS valor_max, '+
+    '  MAX(CASE WHEN b.rn = 1 THEN b.valor END) AS valor_ultimo, '+
+    // coluna oculta só para ordenar corretamente por data
+    '  b.dia_iso AS dia_ord '+
+    'FROM base b '+
+    'GROUP BY b.dia_iso, b.tipomedida '+
+    'ORDER BY b.dia_iso, b.tipomedida;';
+
+  zqrymedidas.ParamByName('p_ini').AsDateTime := StartOfTheDay(ADataInicio);
+  zqrymedidas.ParamByName('p_fim').AsDateTime := EndOfTheDay(ADataFim);
+
+  zqrymedidas.Open;
+  Result := not zqrymedidas.IsEmpty;
+end;
+
+
+
+
+
 
 { ---------- INSERT DEVICE ---------- }
 

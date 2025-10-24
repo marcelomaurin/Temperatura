@@ -6,6 +6,7 @@ object frmConfiguracoes: TfrmConfiguracoes
   Caption = 'Configurações'
   ClientHeight = 395
   ClientWidth = 662
+  Position = poMainFormCenter
   LCLVersion = '4.0.0.4'
   object Panel1: TPanel
     Left = 0
@@ -38,9 +39,9 @@ object frmConfiguracoes: TfrmConfiguracoes
     Height = 345
     Top = 50
     Width = 662
-    ActivePage = tsSerial
+    ActivePage = tsGeral
     Align = alClient
-    TabIndex = 1
+    TabIndex = 0
     TabOrder = 1
     object tsGeral: TTabSheet
       Caption = 'Geral'

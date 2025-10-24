@@ -1,0 +1,130 @@
+object frmRelDiario: TfrmRelDiario
+  Left = 596
+  Height = 385
+  Top = 355
+  Width = 694
+  Caption = 'Relatório Diário'
+  ClientHeight = 385
+  ClientWidth = 694
+  Position = poMainFormCenter
+  LCLVersion = '4.0.0.4'
+  OnShow = FormShow
+  object Panel1: TPanel
+    Left = 0
+    Height = 64
+    Top = 0
+    Width = 694
+    Align = alTop
+    ClientHeight = 64
+    ClientWidth = 694
+    TabOrder = 0
+    object Label1: TLabel
+      Left = 17
+      Height = 15
+      Top = 9
+      Width = 32
+      Caption = 'Inicio:'
+    end
+    object dtInicia: TRxDateEdit
+      Left = 17
+      Height = 23
+      Top = 24
+      Width = 103
+      ButtonWidth = 23
+      DialogTitle = 'Select a Date'
+      MaxLength = 10
+      PasswordChar = #0
+      PopupColor = clWindow
+      TabOrder = 0
+      Text = '  /  /    '
+    end
+    object dtfim: TRxDateEdit
+      Left = 128
+      Height = 23
+      Top = 24
+      Width = 103
+      ButtonWidth = 23
+      DialogTitle = 'Select a Date'
+      MaxLength = 10
+      PasswordChar = #0
+      PopupColor = clWindow
+      TabOrder = 1
+      Text = '  /  /    '
+    end
+    object Label2: TLabel
+      Left = 128
+      Height = 15
+      Top = 9
+      Width = 23
+      Caption = 'Fim:'
+    end
+    object btPesquisar: TButton
+      Left = 240
+      Height = 38
+      Top = 8
+      Width = 96
+      Caption = 'Pesquisar'
+      TabOrder = 2
+      OnClick = btPesquisarClick
+    end
+    object btPesquisar1: TButton
+      Left = 352
+      Height = 38
+      Top = 8
+      Width = 96
+      Caption = 'Relatório'
+      TabOrder = 3
+      OnClick = btPesquisar1Click
+    end
+  end
+  object Panel2: TPanel
+    Left = 0
+    Height = 321
+    Top = 64
+    Width = 694
+    Align = alClient
+    ClientHeight = 321
+    ClientWidth = 694
+    TabOrder = 1
+    object DBGrid1: TDBGrid
+      Left = 1
+      Height = 319
+      Top = 1
+      Width = 692
+      Align = alClient
+      Color = clWindow
+      Columns = <      
+        item
+          Title.Caption = 'dia'
+          FieldName = 'dia'
+        end      
+        item
+          Title.Caption = 'tipo'
+          FieldName = 'tipo'
+        end      
+        item
+          Title.Caption = 'valor_min'
+          FieldName = 'valor_min'
+        end      
+        item
+          Title.Caption = 'valor_max'
+          FieldName = 'valor_max'
+        end      
+        item
+          Title.Caption = 'valor_ultimo'
+          FieldName = 'valor_ultimo'
+        end      
+        item
+          Title.Caption = 'dia_ord'
+          FieldName = 'dia_ord'
+        end>
+      DataSource = dsRel
+      TabOrder = 0
+    end
+  end
+  object dsRel: TDataSource
+    DataSet = dmBase.zqrymedidas
+    Left = 39
+    Top = 101
+  end
+end
