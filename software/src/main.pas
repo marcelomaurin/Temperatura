@@ -382,9 +382,9 @@ begin
       dmbase.serialdevid:= DevID;
 
       porta := dmBase.GetIDPorta(DevID);
+      dmbase.LazSerial1.Device:= porta;
       if(not dmbase.LazSerial1.Active) then
       begin
-        dmbase.LazSerial1.Device:= porta;
         dmbase.AtualizaConSerial(true);
       end;
     end;

@@ -132,7 +132,6 @@ object dmBase: TdmBase
     SynSer.ConvertLineEnd = False
     SynSer.AtTimeout = 1000
     SynSer.InterPacketTimeout = True
-    Device = 'COM1'
     RcvLineCRLF = False
     OnRxData = LazSerial1RxData
     OnStatus = LazSerial1Status
