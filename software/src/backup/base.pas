@@ -194,7 +194,7 @@ begin
     begin
       porta := zqryaux.FieldByName('porta').AsString;
       idv   := zqryaux.FieldByName('id_device').AsLargeInt;
-      APortas.AddObject(porta, TObject(PtrInt(idv)));
+      APortas.Add(porta);
       zqryaux.Next;
     end;
     Result := (APortas.Count > 0);
@@ -521,7 +521,7 @@ begin
       okT := ExtractNumber(sTemp, tempVal);
       okH := ExtractNumber(sHum,  humVal);
 
-      if (serialdevid > 0) then
+      if (serialdevid >= 0) then
       begin
         if okT then
           dmBase.RegistraMedida(serialdevid, 0, tempVal);

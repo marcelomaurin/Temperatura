@@ -515,6 +515,7 @@ begin
 
     // Conecta
     dmBase.LazSerial1.Device := porta;
+
     if not dmBase.LazSerial1.Active then
     begin
       RegistraLog('Tentando conectar na porta ' + porta);

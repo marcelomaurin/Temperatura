@@ -317,7 +317,7 @@ var
 begin
   // Retornos: -1 erro; 0 = não inseriu (sem mudança); >0 id inserido
   Result := -1;
-  if (AIdDevice <= 0) then Exit;
+  if (AIdDevice < 0) then Exit;
 
   epsilon := 0.01; // tolerância para “mudou”
 
@@ -521,7 +521,7 @@ begin
       okT := ExtractNumber(sTemp, tempVal);
       okH := ExtractNumber(sHum,  humVal);
 
-      if (serialdevid > 0) then
+      if (serialdevid >= 0) then
       begin
         if okT then
           dmBase.RegistraMedida(serialdevid, 0, tempVal);
