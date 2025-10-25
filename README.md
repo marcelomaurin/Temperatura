@@ -45,7 +45,7 @@ O Projeto Temperatura é uma solução integrada para o controle e monitoramento
 |---------------|----------------|
 | ![Visão Superior](https://github.com/marcelomaurin/Temperatura/blob/main/imgs/superior.jpeg) | ![Visão Traseira](https://github.com/marcelomaurin/Temperatura/blob/main/imgs/traseira.jpeg) |
 
-## Imagens do Instalador
+## Imagens do projeto
 
 | ![box.jpg](https://github.com/marcelomaurin/Temperatura/blob/main/imgs/box.jpg) |
 |---------------------|
@@ -55,13 +55,8 @@ O Projeto Temperatura é uma solução integrada para o controle e monitoramento
 | ![ide.jpg](https://github.com/marcelomaurin/Temperatura/blob/main/imgs/ide.jpg) |
 | ![LCD.jpg](https://github.com/marcelomaurin/Temperatura/blob/main/imgs/LCD.jpg) |
 | ![M3x12.jpg](https://github.com/marcelomaurin/Temperatura/blob/main/imgs/M3x12.jpg) |
-| ![main.png](https://github.com/marcelomaurin/Temperatura/blob/main/imgs/main.png) |
-| ![medidas.png](https://github.com/marcelomaurin/Temperatura/blob/main/imgs/medidas.png) |
 | ![MSTemp01.jpeg](https://github.com/marcelomaurin/Temperatura/blob/main/imgs/MSTemp01.jpeg) |
 | ![nano.jpg](https://github.com/marcelomaurin/Temperatura/blob/main/imgs/nano.jpg) |
-| ![report.png](https://github.com/marcelomaurin/Temperatura/blob/main/imgs/report.png) |
-| ![sensores.png](https://github.com/marcelomaurin/Temperatura/blob/main/imgs/sensores.png) |
-| ![setup.png](https://github.com/marcelomaurin/Temperatura/blob/main/imgs/setup.png) |
 | ![setup_protetor_100.exe](https://github.com/marcelomaurin/Temperatura/blob/main/imgs/setup_protetor_100.exe) |
 | ![shield.jpg](https://github.com/marcelomaurin/Temperatura/blob/main/imgs/shield.jpg) |
 | ![superior.jpeg](https://github.com/marcelomaurin/Temperatura/blob/main/imgs/superior.jpeg) |
