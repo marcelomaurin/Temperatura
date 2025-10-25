@@ -61,6 +61,8 @@ O Projeto Temperatura é uma solução integrada para o controle e monitoramento
 | ![shield.jpg](https://github.com/marcelomaurin/Temperatura/blob/main/imgs/shield.jpg) |
 | ![superior.jpeg](https://github.com/marcelomaurin/Temperatura/blob/main/imgs/superior.jpeg) |
 | ![traseira.jpeg](https://github.com/marcelomaurin/Temperatura/blob/main/imgs/traseira.jpeg) |
+| ![mstemp02.jpeg](https://github.com/marcelomaurin/Temperatura/blob/main/imgs/mstemp02.jpeg) |
+| ![mstemp02b.jpeg](https://github.com/marcelomaurin/Temperatura/blob/main/imgs/mstemp02b.jpeg) |
 | ![vista frontal da peça.jpg](https://github.com/marcelomaurin/Temperatura/blob/main/imgs/vista%20frontal%20da%20pe%C3%A7a.jpg) |
 
 ## Telas do Instalador
