@@ -60,7 +60,7 @@ O Projeto Temperatura é uma solução integrada para o controle e monitoramento
 | ![setup_protetor_100.exe](https://github.com/marcelomaurin/Temperatura/blob/main/imgs/setup_protetor_100.exe) |
 | ![shield.jpg](https://github.com/marcelomaurin/Temperatura/blob/main/imgs/shield.jpg) |
 | ![superior.jpeg](https://github.com/marcelomaurin/Temperatura/blob/main/imgs/superior.jpeg) |
-| ![relatorio.png](https://github.com/marcelomaurin/Temperatura/blob/main/imgs/relatorio.png) |
+| ![relatorio.jpg](https://github.com/marcelomaurin/Temperatura/blob/main/imgs/relatorio.jpg) |
 | ![traseira.jpeg](https://github.com/marcelomaurin/Temperatura/blob/main/imgs/traseira.jpeg) |
 | ![MSTEMP02.jpeg](https://github.com/marcelomaurin/Temperatura/blob/main/imgs/MSTemp02.jpeg) |
 | ![MSTEMP02b.jpg](https://github.com/marcelomaurin/Temperatura/blob/main/imgs/MSTEMP02b.jpg) |
