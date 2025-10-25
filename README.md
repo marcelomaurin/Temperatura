@@ -53,7 +53,7 @@ O projeto suporta leitura e compartilhamento de dados de temperatura e umidade p
 - Equipamento com Web API para integração com outros sistemas.
 
 Mais informações:  
-[http://maurinsoft.com.br:8082/index.php/sensor-de-temperatura/](http://maurinsoft.com.br:8082/index.php/sensor-de-temperatura/)
+[https://maurinsoft.com.br/index.php/sensor-de-temperatura/](https://maurinsoft.com.br/index.php/sensor-de-temperatura/)
 
 ## Licença
 
@@ -62,4 +62,4 @@ Uso livre para pessoas físicas e jurídicas para uso próprio. Proibida montage
 ## Customizações
 
 Solicitações de customização podem ser enviadas via contato:  
-[http://maurinsoft.com.br:8082/index.php/fale-conosco/](http://maurinsoft.com.br:8082/index.php/fale-conosco/)
+[https://maurinsoft.com.br/index.php/fale-conosco/](https://maurinsoft.com.br/index.php/fale-conosco/)
