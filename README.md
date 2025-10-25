@@ -45,6 +45,11 @@ O Projeto Temperatura é uma solução integrada para o controle e monitoramento
 |---|---|  
 | ![Visão Superior](https://github.com/marcelomaurin/Temperatura/blob/main/imgs/superior.jpeg) | ![Visão Traseira](https://github.com/marcelomaurin/Temperatura/blob/main/imgs/traseira.jpeg) |
 
+
+| Tela Instalador 1 | Tela Instalador 2 | Tela Instalador 3 | Tela Instalador 4 | Tela Instalador 5 |  
+|---|---|---|---|---|  
+| ![Instalador 1](https://github.com/marcelomaurin/Temperatura/blob/main/software/img/instalador_tela01.png) | ![Instalador 2](https://github.com/marcelomaurin/Temperatura/blob/main/software/img/instalador_tela02.png) | ![Instalador 3](https://github.com/marcelomaurin/Temperatura/blob/main/software/img/instalador_tela03.png) | ![Instalador 4](https://github.com/marcelomaurin/Temperatura/blob/main/software/img/instalador_tela04.png) | ![Instalador 5](https://github.com/marcelomaurin/Temperatura/blob/main/software/img/instalador_tela05.png) |
+
 ## Projeto de Sensor de Temperatura em Arduino
 
 O projeto suporta leitura e compartilhamento de dados de temperatura e umidade por meio de:  
