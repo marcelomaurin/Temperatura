@@ -1,60 +1,109 @@
-## Screens
+# Projeto Temperatura – Documentação
+
+
+## Visão Geral
+
+  
+
+O Projeto Temperatura é uma solução completa para o controle e monitoramento contínuo da temperatura e umidade em ambientes críticos, como farmácias e geladeiras de medicamentos.
+    O sistema registra medições 24/7, fornecendo relatórios detalhados com valores atuais, máximos e mínimos, garantindo a segurança e integridade de produtos sensíveis.
+
+
+    
+
+## Finalidade
+      
+
+- Monitoramento constante de temperatura e umidade ambiental.
+      
+- Preservação da qualidade e segurança de produtos sensíveis, especialmente medicamentos.
+
+      - Geração de relatórios analíticos para acompanhamento e controle.
+
+
+    
+
+## Vantagens
+      
+
+- Funcionamento ininterrupto, 24 horas por dia, 7 dias por semana.
+      
+- Relatórios precisos contendo dados atuais, máximos e mínimos de temperatura e umidade.
+
+      - Sistema open source para permitir flexibilidade e personalização.
+- Compatível com três tipos distintos de equipamentos de aquisição de dados.
+
+---
+
+## Equipamentos Suportados
+
+1. **USB Serial (Arduino Nano)**  
+   Comunicação usando porta serial USB, ideal para instalações locais simples.
+
+2. **Ethernet (Arduino Mega com Ethernet Shield)**  
+   Comunicação via rede cabeada, adequado para infraestruturas com cabeamento Ethernet.
+
+3. **ESP8266 (Wi-Fi)**  
+   Módulo Wi-Fi para conexão sem fio, oferecendo maior flexibilidade na instalação.
+
+---
+
+## Estrutura do Projeto
+
+- **hardware/**  
+  Firmwares para placas Arduino Nano, Mega com Ethernet Shield e ESP8266, além de manuais e designs 3D dos equipamentos.
+
+- **software/**  
+  Código-fonte da aplicação principal (desenvolvida em Pascal/Delphi), banco de dados SQLite, instaladores para Windows e Linux, e bibliotecas auxiliares.
+
+- **docs/**  
+  Documentação técnica, incluindo manuais em PDF.
+
+- **imgs/**  
+  Imagens ilustrativas do hardware, software e capturas de tela.
+
+- **.git/**  
+  Arquivos e configurações para controle de versão com Git.
+
+---
+
+## Instalando e Configurando
+
+1. Instale o equipamento de medição apropriado para seu ambiente.  
+2. Configure o software informando o tipo de equipamento e parâmetros de comunicação.  
+3. Execute a aplicação para iniciar o monitoramento contínuo.
+
+---
+
+## Telas do Sistema
+
 ### MSTemp01
-<img heigh="300" width="300" src="https://github.com/marcelomaurin/Temperatura/blob/main/imgs/superior.jpeg">
 
-<img heigh="300" width="300" src="https://github.com/marcelomaurin/Temperatura/blob/main/imgs/traseira.jpeg">
+| Visão Superior | Visão Traseira |
+|---|---|
+| <img src="https://github.com/marcelomaurin/Temperatura/blob/main/imgs/superior.jpeg" alt="Visão Superior" width="300" height="300"> | <img src="https://github.com/marcelomaurin/Temperatura/blob/main/imgs/traseira.jpeg" alt="Visão Traseira" width="300" height="300"> |
 
+---
 
+## Projeto de Sensor de Temperatura em Arduino
 
-# Portuguese
-## Projeto de Sensor Temperatura em arduino.
-Este projeto permite ler temperatura e humidade através de 2 tipos de equipamentos.
-O primeiro permite ler a temperatura criando uma web api, permitindo ser compartilhado. 
-O segundo equipamento cria uma web api permitindo outros sistemas lerem a temperatura. Conheça mais vendo nosso site.
+Este projeto permite a leitura de temperatura e umidade utilizando dois tipos de equipamentos:
 
-### Site do Projeto:
-http://maurinsoft.com.br:8082/index.php/sensor-de-temperatura/
+- Um equipamento que cria uma Web API para compartilhamento dos dados de temperatura.
+- Outro que disponibiliza uma Web API para integração com outros sistemas.
 
-## Licensa
-Este software e hardware pode ser construído para uso próprio sem custas, por empresas e pessoas, porem não pode ser montado para venda.
-O firmware do equipamento, bem como os softwares são open source, porem não podem ser modificados. 
+Para mais informações, acesse nosso site:  
+[http://maurinsoft.com.br:8082/index.php/sensor-de-temperatura/](http://maurinsoft.com.br:8082/index.php/sensor-de-temperatura/)
 
-### Customizações
-Entre em contato conosco para solicitações de customização
-http://maurinsoft.com.br:8082/index.php/fale-conosco/
+---
 
+## Licença
 
-# English
-## Arduino Temperature Sensor Project.
-This project allows you to read temperature and humidity through 2 types of equipment.
-The first allows you to read the temperature by creating a web api, allowing it to be shared.
-The second device creates a web api allowing other systems to read the temperature. Find out more by visiting our website.
+Este software e hardware podem ser utilizados livremente para uso próprio, por pessoas físicas ou jurídicas, porém a montagem para venda é proibida. O firmware e software são open source, porém não autorizamos modificações no código original.
 
-### Project Website: 
-http://maurinsoft.com.br:8082/index.php/sensor-de-temperatura/
+---
 
-## license
-This software and hardware can be built for their own use free of charge, by companies and individuals, but cannot be assembled for sale.
-The equipment's firmware, as well as the software are open source, but cannot be modified.
+## Customizações
 
-### Customizations
-Contact us for customization requests
-http://maurinsoft.com.br:8082/index.php/fale-conosco/
-
-# Spanish
-## Proyecto Sensor de Temperatura Arduino.
-Este proyecto le permite leer la temperatura y la humedad a través de 2 tipos de equipos.
-El primero le permite leer la temperatura creando una API web, lo que permite compartirla.
-El segundo dispositivo crea una API web que permite que otros sistemas lean la temperatura. Obtenga más información visitando nuestro sitio web.
-
-### Sitio web del proyecto: 
-http://maurinsoft.com.br:8082/index.php/sensor-de-temperatura/
-
-## licencia
-Este software y hardware pueden construirse para su propio uso de forma gratuita, por parte de empresas y particulares, pero no pueden ensamblarse para la venta.
-El firmware del equipo, así como el software son de código abierto, pero no se pueden modificar.
-
-### Personalizaciones
-Póngase en contacto con nosotros para solicitudes de personalización
-http://maurinsoft.com.br:8082/index.php/fale-conosco/
-
+Se desejar solicitar customizações, por favor entre em contato conosco:  
+[http://maurinsoft.com.br:8082/index.php/fale-conosco/](http://maurinsoft.com.br:8082/index.php/fale-conosco/)
