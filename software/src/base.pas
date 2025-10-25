@@ -184,11 +184,9 @@ begin
   zqryaux.SQL.Text :=
     'select * '+
     'from devices '+
-    'where tipo = :t '+
-    '  and porta is not null '+
-    '  and trim(porta) <> '''' '+
+    'where tipo = 1 '+
     'order by porta';
-  zqryaux.ParamByName('t').AsInteger := 1;
+
 
   try
     zqryaux.Open;
@@ -196,7 +194,7 @@ begin
     begin
       porta := zqryaux.FieldByName('porta').AsString;
       idv   := zqryaux.FieldByName('id_device').AsLargeInt;
-      APortas.AddObject(porta, TObject(PtrInt(idv)));
+      APortas.Add(porta);
       zqryaux.Next;
     end;
     Result := (APortas.Count > 0);

@@ -184,11 +184,9 @@ begin
   zqryaux.SQL.Text :=
     'select * '+
     'from devices '+
-    'where tipo = :t '+
-    '  and porta is not null '+
-    '  and trim(porta) <> '''' '+
+    'where tipo = 1 '+
     'order by porta';
-  zqryaux.ParamByName('t').AsInteger := 1;
+
 
   try
     zqryaux.Open;
