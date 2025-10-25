@@ -45,10 +45,29 @@ O Projeto Temperatura é uma solução integrada para o controle e monitoramento
 |---|---|  
 | ![Visão Superior](https://github.com/marcelomaurin/Temperatura/blob/main/imgs/superior.jpeg) | ![Visão Traseira](https://github.com/marcelomaurin/Temperatura/blob/main/imgs/traseira.jpeg) |
 
+## Imagens do Instalador
 
-| Tela Instalador 1 | Tela Instalador 2 | Tela Instalador 3 | Tela Instalador 4 | Tela Instalador 5 |  
-|---|---|---|---|---|  
-| ![Instalador 1](https://github.com/marcelomaurin/Temperatura/blob/main/software/img/instalador_tela01.png) | ![Instalador 2](https://github.com/marcelomaurin/Temperatura/blob/main/software/img/instalador_tela02.png) | ![Instalador 3](https://github.com/marcelomaurin/Temperatura/blob/main/software/img/instalador_tela03.png) | ![Instalador 4](https://github.com/marcelomaurin/Temperatura/blob/main/software/img/instalador_tela04.png) | ![Instalador 5](https://github.com/marcelomaurin/Temperatura/blob/main/software/img/instalador_tela05.png) |
+| ![box.jpg](https://github.com/marcelomaurin/Temperatura/blob/main/imgs/box.jpg) |  
+|---|  
+| ![box_tampa.jpg](https://github.com/marcelomaurin/Temperatura/blob/main/imgs/box_tampa.jpg) |  
+| ![compile.jpg](https://github.com/marcelomaurin/Temperatura/blob/main/imgs/compile.jpg) |  
+| ![dht22.jpg](https://github.com/marcelomaurin/Temperatura/blob/main/imgs/dht22.jpg) |  
+| ![ide.jpg](https://github.com/marcelomaurin/Temperatura/blob/main/imgs/ide.jpg) |  
+| ![LCD.jpg](https://github.com/marcelomaurin/Temperatura/blob/main/imgs/LCD.jpg) |  
+| ![M3x12.jpg](https://github.com/marcelomaurin/Temperatura/blob/main/imgs/M3x12.jpg) |  
+| ![main.png](https://github.com/marcelomaurin/Temperatura/blob/main/imgs/main.png) |  
+| ![medidas.png](https://github.com/marcelomaurin/Temperatura/blob/main/imgs/medidas.png) |  
+| ![MSTemp01.jpeg](https://github.com/marcelomaurin/Temperatura/blob/main/imgs/MSTemp01.jpeg) |  
+| ![nano.jpg](https://github.com/marcelomaurin/Temperatura/blob/main/imgs/nano.jpg) |  
+| ![report.png](https://github.com/marcelomaurin/Temperatura/blob/main/imgs/report.png) |  
+| ![sensores.png](https://github.com/marcelomaurin/Temperatura/blob/main/imgs/sensores.png) |  
+| ![setup.png](https://github.com/marcelomaurin/Temperatura/blob/main/imgs/setup.png) |  
+| ![setup_protetor_100.exe](https://github.com/marcelomaurin/Temperatura/blob/main/imgs/setup_protetor_100.exe) |  
+| ![shield.jpg](https://github.com/marcelomaurin/Temperatura/blob/main/imgs/shield.jpg) |  
+| ![superior.jpeg](https://github.com/marcelomaurin/Temperatura/blob/main/imgs/superior.jpeg) |  
+| ![traseira.jpeg](https://github.com/marcelomaurin/Temperatura/blob/main/imgs/traseira.jpeg) |  
+| ![vista frontal da peça.jpg](https://github.com/marcelomaurin/Temperatura/blob/main/imgs/vista%20frontal%20da%20pe%C3%A7a.jpg) |  
+```g) | ![Instalador 2](https://github.com/marcelomaurin/Temperatura/blob/main/software/img/instalador_tela02.png) | ![Instalador 3](https://github.com/marcelomaurin/Temperatura/blob/main/software/img/instalador_tela03.png) | ![Instalador 4](https://github.com/marcelomaurin/Temperatura/blob/main/software/img/instalador_tela04.png) | ![Instalador 5](https://github.com/marcelomaurin/Temperatura/blob/main/software/img/instalador_tela05.png) |
 
 ## Projeto de Sensor de Temperatura em Arduino
 
