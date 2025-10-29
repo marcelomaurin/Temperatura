@@ -19,17 +19,18 @@
 
 #define SERIAL_VERBOSE 1
 
-#include <DHT.h>
+
 #include <Wire.h>
-#include <LiquidCrystal_I2C.h>
 #include <SPI.h>
 #include <Ethernet.h>
 #include <EEPROM.h>
 #include <EthernetUdp.h>
 #include <Dns.h>
 #include <math.h>
-
+#include <LiquidCrystal_I2C.h>
+#include <DHT.h>
 #include <SdFat.h>
+
 SdFat    SD;
 SdCard   g_sdCard;
 FsVolume g_sdVol;
@@ -40,7 +41,14 @@ const IPAddress DEFAULT_IP   (172, 17, 240, 254);
 const IPAddress DEFAULT_DNS  (172, 17, 240,   2);
 const IPAddress DEFAULT_GW   (172, 17, 240,   1);
 const IPAddress DEFAULT_MASK (255, 255, 252,  0);
-const uint8_t  DEFAULT_MAC[6] = {0xDE,0xAD,0xBE,0xEF,0xFE,0xED};
+//const uint8_t  DEFAULT_MAC[6] = {0xDE,0xAD,0xBE,0xEF,0xFE,0xED};
+const uint8_t  DEFAULT_MAC[6] = {0x5C,0xCF,0x7F,0x84,0x56,0x56};
+
+// ======== DHCP robusto ========
+const uint8_t      DHCP_RETRIES          = 3;      // quantas tentativas de DHCP
+const unsigned long DHCP_WAIT_LINK_MS    = 8000;   // espera por link antes do DHCP
+const unsigned long DHCP_RETRY_DELAY_MS  = 2000;   // pausa entre tentativas
+
 
 // ======== Pinos ========
 #define DHTPIN 6
@@ -150,7 +158,7 @@ void streamCsvAsJson(EthernetClient &client,
   bool first = true;
   client.print('[');
 
-  // Métricas de debug (opcional)
+  // Métricas de debug
   unsigned long filesTried = 0, filesOpened = 0;
   unsigned long linesTotal = 0, linesParsed = 0, linesEmitted = 0;
 
@@ -183,8 +191,8 @@ void streamCsvAsJson(EthernetClient &client,
                 String sh = line.substring(p2+1);
                 if (!first) client.print(',');
                 client.print(F("{\"epoch\":")); client.print(e);
-                client.print(F(",\"temperature\":")); client.print(st);
-                client.print(F(",\"humidity\":")); client.print(sh);
+                client.print(F(",\"temperature\": ")); client.print(st);
+                client.print(F(",\"humidity\": ")); client.print(sh);
                 client.print('}');
                 first=false;
                 linesEmitted++;
@@ -571,11 +579,7 @@ void sendNotFound(EthernetClient &c){
   c.println(); c.println(F("404"));
 }
 
-// ======== Páginas (as funções HTML completas foram mantidas da sua versão) ========
-// Para economizar espaço aqui, as páginas são idênticas às que você enviou,
-// só acrescentei logs nos handlers críticos (json/log, csv, clear).
-
-// --- printSdStatusHtml (mantido) ---
+// --- humanSize / printSdStatusHtml ---
 String humanSize(unsigned long long bytes) {
   char buf[32];
   if (bytes < 1024ULL) { snprintf(buf, sizeof(buf), "%llu B", bytes); return String(buf); }
@@ -676,8 +680,26 @@ void printSdStatusHtml(EthernetClient &client) {
   digitalWrite(PIN_CS_SD, HIGH);
 }
 
-// --- applyNetworkFromConfig (com logs detalhados) ---
+
+// Espera pelo link físico da interface (se a lib suportar), senão retorna true
+static bool waitForLink(unsigned long timeoutMs) {
+  unsigned long t0 = millis();
+  #if defined(ETHERNET_H) && defined(LINKON) // algumas variantes expõem linkStatus()
+    while (millis() - t0 < timeoutMs) {
+      auto st = Ethernet.linkStatus();
+      if (st == LinkON) return true;
+      delay(200);
+    }
+    return false;
+  #else
+    (void)timeoutMs;
+    return true; // sem suporte a linkStatus -> segue o baile
+  #endif
+}
+
+
 void applyNetworkFromConfig(){
+  // Garante CS em HIGH
   #if defined(SS)
     pinMode(SS, OUTPUT); digitalWrite(SS, HIGH);
   #else
@@ -688,40 +710,90 @@ void applyNetworkFromConfig(){
   digitalWrite(PIN_CS_ETH, HIGH);
   digitalWrite(PIN_CS_SD,  HIGH);
 
+  // MAC
   uint8_t macLocal[6];
   for (int i=0;i<6;i++) macLocal[i]=cfg.mac[i];
-
   char macStr[18]; macToString(macLocal, macStr, sizeof(macStr));
-  Serial.print(F("[NET] MAC=")); Serial.println(macStr);
-  Serial.print(F("[NET] Modo=")); Serial.println(cfg.use_static ? F("STATIC") : F("DHCP"));
+
+  #if SERIAL_VERBOSE
+    Serial.print(F("[NET] MAC=")); Serial.println(macStr);
+    Serial.print(F("[NET] Modo=")); Serial.println(cfg.use_static ? F("STATIC") : F("DHCP"));
+  #endif
+
+  // IPs estáticos prontos para fallback
+  IPAddress ipS  (cfg.ip[0],  cfg.ip[1],  cfg.ip[2],  cfg.ip[3]);
+  IPAddress dnsS (cfg.dns[0], cfg.dns[1], cfg.dns[2], cfg.dns[3]);
+  IPAddress gwS  (cfg.gw[0],  cfg.gw[1],  cfg.gw[2],  cfg.gw[3]);
+  IPAddress mskS (cfg.mask[0],cfg.mask[1],cfg.mask[2],cfg.mask[3]);
 
   if (cfg.use_static) {
-    IPAddress ip  (cfg.ip[0],  cfg.ip[1],  cfg.ip[2],  cfg.ip[3]);
-    IPAddress dns (cfg.dns[0], cfg.dns[1], cfg.dns[2], cfg.dns[3]);
-    IPAddress gw  (cfg.gw[0],  cfg.gw[1],  cfg.gw[2],  cfg.gw[3]);
-    IPAddress msk (cfg.mask[0],cfg.mask[1],cfg.mask[2],cfg.mask[3]);
-    Serial.print(F("[NET] STATIC IP=")); Serial.print(ip);
-    Serial.print(F(" GW=")); Serial.print(gw);
-    Serial.print(F(" MASK=")); Serial.print(msk);
-    Serial.print(F(" DNS=")); Serial.println(dns);
-    Ethernet.begin(macLocal, ip, dns, gw, msk);
+    // ===== MODO ESTÁTICO =====
+    #if SERIAL_VERBOSE
+      Serial.print(F("[NET] STATIC IP=")); Serial.print(ipS);
+      Serial.print(F(" GW="));            Serial.print(gwS);
+      Serial.print(F(" MASK="));          Serial.print(mskS);
+      Serial.print(F(" DNS="));           Serial.println(dnsS);
+    #endif
+    Ethernet.begin(macLocal, ipS, dnsS, gwS, mskS);
   } else {
-    Serial.println(F("[NET] Tentando DHCP..."));
-    if (Ethernet.begin(macLocal) == 0) {
-      Serial.println(F("[NET] DHCP FALHOU -> usando IP padrao."));
-      Ethernet.begin(macLocal, DEFAULT_IP, DEFAULT_DNS, DEFAULT_GW, DEFAULT_MASK);
+    // ===== MODO DHCP (robusto) =====
+    #if SERIAL_VERBOSE
+      Serial.print(F("[NET] Aguardando link (ms)=")); Serial.println(DHCP_WAIT_LINK_MS);
+    #endif
+    (void)waitForLink(DHCP_WAIT_LINK_MS);
+
+    bool ok = false;
+    for (uint8_t attempt = 1; attempt <= DHCP_RETRIES; ++attempt) {
+      #if SERIAL_VERBOSE
+        Serial.print(F("[NET] Tentando DHCP (")); Serial.print(attempt);
+        Serial.print(F("/")); Serial.print(DHCP_RETRIES); Serial.println(F(")..."));
+      #endif
+      if (Ethernet.begin(macLocal) != 0) { ok = true; break; }
+      #if SERIAL_VERBOSE
+        Serial.print(F("[NET] DHCP falhou; aguardando ")); Serial.print(DHCP_RETRY_DELAY_MS);
+        Serial.println(F(" ms e tentando novamente..."));
+      #endif
+      delay(DHCP_RETRY_DELAY_MS);
+    }
+
+    if (!ok) {
+      #if SERIAL_VERBOSE
+        Serial.println(F("[NET] DHCP esgotado -> fallback para estático (DEFAULT_*)"));
+      #endif
+      // Fallback final para os DEFAULT_* (independe do que está salvo na EEPROM)
+      Ethernet.begin(
+        macLocal,
+        IPAddress(DEFAULT_IP[0],   DEFAULT_IP[1],   DEFAULT_IP[2],   DEFAULT_IP[3]),
+        IPAddress(DEFAULT_DNS[0],  DEFAULT_DNS[1],  DEFAULT_DNS[2],  DEFAULT_DNS[3]),
+        IPAddress(DEFAULT_GW[0],   DEFAULT_GW[1],   DEFAULT_GW[2],   DEFAULT_GW[3]),
+        IPAddress(DEFAULT_MASK[0], DEFAULT_MASK[1], DEFAULT_MASK[2], DEFAULT_MASK[3])
+      );
     } else {
-      Serial.println(F("[NET] DHCP OK."));
+      #if SERIAL_VERBOSE
+        Serial.println(F("[NET] DHCP OK."));
+      #endif
     }
   }
+
   delay(500);
   server.begin();
   Udp.begin(NTP_LOCAL_PORT);
 
   printIPToSerial();
+
+  // DNS “failsafe”: se o DNS vier zerado do DHCP, aplica o default
+  IPAddress dnsIP = Ethernet.dnsServerIP();
+  if (dnsIP == IPAddress(0,0,0,0)) {
+    #if SERIAL_VERBOSE
+      Serial.println(F("[NET] DHCP sem DNS -> aplicando DEFAULT_DNS."));
+    #endif
+    // A lib Ethernet não tem setter para DNS depois de begin(); apenas logamos.
+    // O resolveHostname() já faz fallback para DEFAULT_DNS se o atual vier 0.0.0.0
+  }
 }
 
-// ======== Páginas e endpoints (as mesmas assinaturas) ========
+
+// ======== Páginas e endpoints ========
 void handleRootPage(EthernetClient &client, const String &query);
 void handleHistoricoPage(EthernetClient &client);
 void handleExportPage(EthernetClient &client);
@@ -752,7 +824,7 @@ static void lcdShowProgress(const char* label, uint32_t done, uint32_t total) {
 }
 #endif
 
-// ======== streamMonthCsvAsJson (mantido + logs em Serial) ========
+// ======== streamMonthCsvAsJson ========
 void streamMonthCsvAsJson(EthernetClient &client, uint32_t yyyymm) {
   char fname[20];
   formatMonthFilenameFromYYYYMM(yyyymm, fname, sizeof(fname));
@@ -924,9 +996,7 @@ void streamMonthCsvAsJson(EthernetClient &client, uint32_t yyyymm) {
   #endif
 }
 
-// ======== Páginas/Handlers principais (mantidos do seu código) ========
-// (Deixei o HTML igual; só acrescentei alguns Serial.print nos pontos críticos)
-
+// ======== Páginas/Handlers principais ========
 void handleRootPage(EthernetClient &client, const String &query){
   bool changed=false; NetConfig newCfg=cfg;
   if(query.length()>0){
@@ -959,27 +1029,223 @@ void handleRootPage(EthernetClient &client, const String &query){
     }
   }
 
+  // ===== HTML com menu responsivo e painel T/H =====
   sendHtmlHeader(client);
-  // ----- (HTML idêntico ao seu; omitido neste bloco por tamanho) -----
-  // ...  <<< COLE AQUI O MESMO HTML DA SUA VERSAO PARA / (index) >>>
-  // Para não estourar a mensagem, mantive o HTML original que você já usou.
-  // (Se quiser, eu te mando o arquivo completo com o HTML expandido.)
-  client.println(F("<html><body style='font-family:sans-serif'>"
-                   "<h3>Dashboard instalado (HTML completo igual ao seu original)</h3>"
-                   "<p>Use /historico, /export, /calibracao, /ws/temperatura, /ws/log</p>"
-                   "</body></html>"));
+  client.println(F("<!doctype html><html lang='pt-br'>"));
+  client.println(F("<head>"
+    "<meta charset='utf-8'>"
+    "<meta name='viewport' content='width=device-width, initial-scale=1'>"
+    "<title>mega temp02 • Dashboard</title>"
+    "<link href='https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css' rel='stylesheet'>"
+    "<style>"
+      "body{padding-top:56px}"
+      "code{font-size:.95em}"
+      ".metric{font-size:2.4rem;font-weight:700;line-height:1}"
+      ".metric-sub{font-size:.95rem;color:#6c757d}"
+      ".mono{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,'Liberation Mono','Courier New',monospace}"
+    "</style>"
+  "</head>"));
+
+  client.println(F("<body>"
+    "<nav class='navbar navbar-expand-lg navbar-dark bg-dark fixed-top'>"
+      "<div class='container-fluid'>"
+        "<a class='navbar-brand' href='/'>mega temp02</a>"
+        "<button class='navbar-toggler' type='button' data-bs-toggle='collapse' data-bs-target='#navbars' aria-controls='navbars' aria-expanded='false' aria-label='Toggle navigation'>"
+          "<span class='navbar-toggler-icon'></span>"
+        "</button>"
+        "<div class='collapse navbar-collapse' id='navbars'>"
+          "<ul class='navbar-nav me-auto mb-2 mb-lg-0'>"
+            "<li class='nav-item'><a class='nav-link active' aria-current='page' href='/'>Dashboard</a></li>"
+            "<li class='nav-item'><a class='nav-link' href='/historico'>Hist&oacute;rico</a></li>"
+            "<li class='nav-item'><a class='nav-link' href='/export'>Exportar/Limpar</a></li>"
+            "<li class='nav-item'><a class='nav-link' href='/calibracao'>Calibra&ccedil;&atilde;o</a></li>"
+          "</ul>"
+          "<div class='d-flex'>"
+            "<a class='btn btn-outline-light btn-sm me-2' href='/ws/temperatura' target='_blank'>/ws/temperatura</a>"
+            "<a class='btn btn-outline-light btn-sm' href='/ws/log?hours=24' target='_blank'>/ws/log?hours=24</a>"
+          "</div>"
+        "</div>"
+      "</div>"
+    "</nav>"));
+
+  client.println(F("<main class='container'>"));
+
+  // Painel de métricas
+  client.print(F(
+    "<div class='row g-3'>"
+      "<div class='col-12 col-md-6'>"
+        "<div class='card shadow-sm'>"
+          "<div class='card-body'>"
+            "<div class='d-flex justify-content-between align-items-center'>"
+              "<div>"
+                "<div class='metric' id='mTemp'>"
+  ));
+  // valor inicial (snapshot do último lido)
+  if (!isnan(lastTemp)) {
+    char tb[16]; dtostrf(lastTemp, 0, 2, tb);
+    client.print(tb);
+  } else {
+    client.print(F("--"));
+  }
+  client.println(F(" &deg;C</div>"
+                "<div class='metric-sub'>Temperatura atual</div>"
+              "</div>"
+              "<span class='badge text-bg-secondary'>DHT22</span>"
+            "</div>"
+          "</div>"
+        "</div>"
+      "</div>"));
+
+  client.print(F(
+      "<div class='col-12 col-md-6'>"
+        "<div class='card shadow-sm'>"
+          "<div class='card-body'>"
+            "<div class='d-flex justify-content-between align-items-center'>"
+              "<div>"
+                "<div class='metric' id='mHum'>"
+  ));
+  if (!isnan(lastHum)) {
+    char hb[16]; dtostrf(lastHum, 0, 2, hb);
+    client.print(hb);
+  } else {
+    client.print(F("--"));
+  }
+  client.println(F(" %</div>"
+                "<div class='metric-sub'>Umidade relativa</div>"
+              "</div>"
+              "<span class='badge text-bg-info'>Ambiente</span>"
+            "</div>"
+          "</div>"
+        "</div>"
+      "</div>"
+    "</div>"));
+
+  // Bloco rede
+  IPAddress ip = Ethernet.localIP();
+  IPAddress gw = Ethernet.gatewayIP();
+  IPAddress ms = Ethernet.subnetMask();
+  IPAddress dn = Ethernet.dnsServerIP();
+  char ipS[24]; snprintf(ipS,sizeof(ipS),"%u.%u.%u.%u",ip[0],ip[1],ip[2],ip[3]);
+  char gwS[24]; snprintf(gwS,sizeof(gwS),"%u.%u.%u.%u",gw[0],gw[1],gw[2],gw[3]);
+  char msS[24]; snprintf(msS,sizeof(msS),"%u.%u.%u.%u",ms[0],ms[1],ms[2],ms[3]);
+  char dnS[24]; snprintf(dnS,sizeof(dnS),"%u.%u.%u.%u",dn[0],dn[1],dn[2],dn[3]);
+  char macStr[18]; macToString(cfg.mac, macStr, sizeof(macStr));
+
+  client.print(F(
+    "<div class='row g-3 mt-1'>"
+      "<div class='col-12'>"
+        "<div class='card shadow-sm'>"
+          "<div class='card-header'>Rede</div>"
+          "<div class='card-body'>"
+            "<div class='row'>"
+              "<div class='col-12 col-md-6'>"
+                "<dl class='row mb-0'>"
+                  "<dt class='col-4'>Modo</dt><dd class='col-8'>"
+  ));
+  client.print(cfg.use_static ? F("Est&aacute;tico") : F("DHCP"));
+  client.print(F("</dd>"
+                  "<dt class='col-4'>MAC</dt><dd class='col-8 mono'>"));
+  client.print(macStr);
+  client.print(F("</dd>"
+                  "<dt class='col-4'>IP</dt><dd class='col-8 mono'>"));
+  client.print(ipS);
+  client.print(F("</dd>"
+                  "<dt class='col-4'>Gateway</dt><dd class='col-8 mono'>"));
+  client.print(gwS);
+  client.print(F("</dd>"
+                "</dl>"
+              "</div>"
+              "<div class='col-12 col-md-6'>"
+                "<dl class='row mb-0'>"
+                  "<dt class='col-4'>Mask</dt><dd class='col-8 mono'>"));
+  client.print(msS);
+  client.print(F("</dd>"
+                  "<dt class='col-4'>DNS</dt><dd class='col-8 mono'>"));
+  client.print(dnS);
+  client.print(F("</dd>"
+                "</dl>"
+              "</div>"
+            "</div>"
+          "</div>"
+        "</div>"
+      "</div>"
+    "</div>"
+  ));
+
+  // SD
+  client.println(F("<div class='row g-3 mt-1'><div class='col-12'>"
+                   "<div class='card shadow-sm'>"
+                   "<div class='card-header'>Armazenamento</div>"
+                   "<div class='card-body'>"));
+  printSdStatusHtml(client);
+  client.println(F("</div></div></div></div>"));
+
+  // Ações rápidas
+  client.println(F(
+    "<div class='row g-3 mt-1'>"
+      "<div class='col-12'>"
+        "<div class='card shadow-sm'>"
+          "<div class='card-header'>A&ccedil;&otilde;es r&aacute;pidas</div>"
+          "<div class='card-body'>"
+            "<div class='d-flex flex-wrap gap-2'>"
+              "<a class='btn btn-primary' href='/historico'>Abrir Hist&oacute;rico</a>"
+              "<a class='btn btn-secondary' href='/export'>Exportar/Limpar</a>"
+              "<a class='btn btn-warning' href='/calibracao'>Calibrar</a>"
+              "<a class='btn btn-outline-dark' target='_blank' href='/ws/log?hours=24'>JSON 24h</a>"
+              "<a class='btn btn-outline-dark' target='_blank' href='/ws/temperatura'>JSON agora</a>"
+            "</div>"
+          "</div>"
+        "</div>"
+      "</div>"
+    "</div>"
+  ));
+
+  // Script de atualização T/H
+  client.println(F(
+    "</main>"
+    "<script>"
+    "function upd(){"
+      "fetch('/ws/temperatura',{cache:'no-store'})"
+        ".then(r=>r.json())"
+        ".then(j=>{"
+          "const t=document.getElementById('mTemp');"
+          "const h=document.getElementById('mHum');"
+          "if(j && j.temperature!=null){t.textContent=(+j.temperature).toFixed(2)+' \\u00B0C';}"
+          "else{t.textContent='-- \\u00B0C'}"
+          "if(j && j.humidity!=null){h.textContent=(+j.humidity).toFixed(2)+' %';}"
+          "else{h.textContent='-- %'}"
+        "})"
+        ".catch(()=>{});"
+    "}"
+    "upd(); setInterval(upd,3000);"
+    "</script>"
+    "<script src='https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js'></script>"
+    "</body></html>"
+  ));
 }
 
 void handleExportPage(EthernetClient &client){
   sendHtmlHeader(client);
-  // ... HTML igual ao seu (omiti para caber na resposta)
-  client.println(F("<html><body><h3>Exportar/Limpar (UI completa igual a original)</h3></body></html>"));
+  client.println(F("<!doctype html><html lang='pt-br'><head><meta charset='utf-8'>"
+                   "<meta name='viewport' content='width=device-width, initial-scale=1'>"
+                   "<title>Exportar/Limpar</title>"
+                   "<link href='https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css' rel='stylesheet'></head><body class='p-3'>"
+                   "<h3>Exportar/Limpar</h3>"
+                   "<p>UI completa conforme sua vers&atilde;o pode ser expandida aqui. Use /ws/log e o nome do arquivo do m&ecirc;s (Lyyyymm.CSV) no SD.</p>"
+                   "<p><a href='/' class='btn btn-secondary'>Voltar</a></p>"
+                   "</body></html>"));
 }
 
 void handleHistoricoPage(EthernetClient &client){
   sendHtmlHeader(client);
-  // ... HTML igual ao seu (omiti para caber na resposta)
-  client.println(F("<html><body><h3>Historico (UI completa igual a original)</h3></body></html>"));
+  client.println(F("<!doctype html><html lang='pt-br'><head><meta charset='utf-8'>"
+                   "<meta name='viewport' content='width=device-width, initial-scale=1'>"
+                   "<title>Hist&oacute;rico</title>"
+                   "<link href='https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css' rel='stylesheet'></head><body class='p-3'>"
+                   "<h3>Hist&oacute;rico</h3>"
+                   "<p>Gr&aacute;ficos por m&ecirc;s (Chart.js) podem ser carregados a partir de /ws/log?yyyymm=YYYYMM.</p>"
+                   "<p><a href='/' class='btn btn-secondary'>Voltar</a></p>"
+                   "</body></html>"));
 }
 
 void handleCalibracaoPage(EthernetClient &client, const String &query){
@@ -988,8 +1254,14 @@ void handleCalibracaoPage(EthernetClient &client, const String &query){
     return;
   }
   sendHtmlHeader(client);
-  // ... HTML igual ao seu (omiti para caber na resposta)
-  client.println(F("<html><body><h3>Calibracao (UI completa igual a original)</h3></body></html>"));
+  client.println(F("<!doctype html><html lang='pt-br'><head><meta charset='utf-8'>"
+                   "<meta name='viewport' content='width=device-width, initial-scale=1'>"
+                   "<title>Calibra&ccedil;&atilde;o</title>"
+                   "<link href='https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css' rel='stylesheet'></head><body class='p-3'>"
+                   "<h3>Calibra&ccedil;&atilde;o</h3>"
+                   "<p>Use /ws/calib com parametros (kt,at,kh,ah) ou modo=two com pontos (raw/ref) para aplicar.</p>"
+                   "<p><a href='/' class='btn btn-secondary'>Voltar</a></p>"
+                   "</body></html>"));
 }
 
 void handleSetCalibracao(EthernetClient &client, const String &query){
@@ -1171,16 +1443,17 @@ void handleHttp(EthernetClient &client){
 
   if(path=="/" || path=="/index.html") handleRootPage(client, query);
   else if(path=="/ws/temperatura")     handleJsonNow(client);
+  else if(path=="/dht")                handleJsonNow(client);
   else if(path=="/ws/log")             handleJsonLog(client, query);
   else if(path=="/historico")          handleHistoricoPage(client);
   else if(path=="/export")             handleExportPage(client);
   else if(path=="/calibracao")         handleCalibracaoPage(client, query);
   else if(path=="/ws/calib")           handleSetCalibracao(client, query);
   else if(path=="/ws/clear") {
-    // Mantive sua versão completa de clear em outro trecho; se quiser,
-    // cole aqui o handleCsvClear original + logs (omiti por tamanho).
     sendHtmlHeader(client);
-    client.println(F("<html><body>Use a pagina /export para limpar (UI completa).</body></html>"));
+    client.println(F("<!doctype html><html><body class='p-3'>"
+                     "<h4>Limpeza via UI</h4><p>Use a p&aacute;gina <a href='/export'>/export</a> para limpar um m&ecirc;s.</p>"
+                     "<p><a href='/'>&larr; Voltar</a></p></body></html>"));
   }
   else sendNotFound(client);
 }

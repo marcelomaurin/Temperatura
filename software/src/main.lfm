@@ -125,9 +125,9 @@ object frmmain: Tfrmmain
       Height = 520
       Top = 1
       Width = 708
-      ActivePage = tsSobre
+      ActivePage = tbStatus
       Align = alClient
-      TabIndex = 0
+      TabIndex = 1
       TabOrder = 0
       object tsSobre: TTabSheet
         Caption = 'Sobre'

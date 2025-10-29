@@ -76,7 +76,6 @@ type
     procedure Inicializar;
     procedure Arvore_Reset;
 
-
   public
     // Adiciona um device sob o nó "Devices" e vincula um ponteiro ao Node.Data
     function AdicionaDevice(const ANome: string; APtr: Pointer): TTreeNode;
@@ -122,12 +121,12 @@ end;
 
 procedure Tfrmmain.btVarredura1Click(Sender: TObject);
 begin
-    tmProcessa.Enabled:=false;
+  tmProcessa.Enabled:=false;
 end;
 
 procedure Tfrmmain.FormDestroy(Sender: TObject);
 begin
-    // Persiste e libera as configurações
+  // Persiste e libera as configurações
   FreeAndNil(FSETMAIN);
   FreeAndNil(frmhint);
   // dmBase será liberado automaticamente por ter Owner = Self
@@ -177,7 +176,7 @@ end;
 
 procedure Tfrmmain.MenuItem8Click(Sender: TObject);
 begin
-     ChamaMedidas();
+  ChamaMedidas();
 end;
 
 procedure Tfrmmain.MenuItem9Click(Sender: TObject);
@@ -189,8 +188,6 @@ procedure Tfrmmain.Timer1Timer(Sender: TObject);
 var
   sClock, sConn, sHint: string;
 begin
-
-
   sClock := FormatDateTime('dd/mm/yyyy hh:nn:ss', Now);
   if StatusBar1.Panels[0].Text <> sClock then
     StatusBar1.Panels[0].Text := sClock;
@@ -207,8 +204,6 @@ begin
   if StatusBar1.Panels[2].Text <> sHint then
     StatusBar1.Panels[2].Text := sHint;
 end;
-
-
 
 procedure Tfrmmain.tmProcessaStartTimer(Sender: TObject);
 begin
@@ -242,7 +237,6 @@ begin
   // Cria o nó raiz "Devices" e guarda a referência
   FNodeDevices := tvItem.Items.Add(nil, 'Devices');
   FNodeDevices.ImageIndex:=4;
-  // (Opcional) Deixa o nó aberto
   if Assigned(FNodeDevices) then
     FNodeDevices.Expand(False);
 end;
@@ -254,34 +248,28 @@ end;
 
 procedure Tfrmmain.ChamaRelatorioDiario();
 begin
-   frmRelDiario := TfrmRelDiario.create(self);
-   frmRelDiario.showmodal;
-   FreeAndNil(frmRelDiario);
+  frmRelDiario := TfrmRelDiario.create(self);
+  frmRelDiario.showmodal;
+  FreeAndNil(frmRelDiario);
 end;
 
 function Tfrmmain.AdicionaDevice(const ANome: string; APtr: Pointer): TTreeNode;
 var
   item : TTreeNode;
 begin
-  // Garante que o nó "Devices" exista
   if (FNodeDevices = nil) then
   begin
     FNodeDevices := tvItem.Items.Add(nil, 'Devices');
     FNodeDevices.ImageIndex:= 4;
   end;
 
-
-
-  // Cria o nó filho com o nome do device
   item := tvItem.Items.AddChild(FNodeDevices, ANome);
   item.ImageIndex:=1;
   result := item;
 
-  // Vincula o ponteiro ao node (recuperável depois via Node.Data)
   if Assigned(Result) then
     Result.Data := APtr;
 
-  // (Opcional) Mantém "Devices" expandido ao adicionar
   if Assigned(FNodeDevices) then
     FNodeDevices.Expand(False);
 end;
@@ -300,7 +288,6 @@ var
   DevId: Int64;
   DevNome: string;
 begin
-  // Garante nó pai "Devices"
   if (FNodeDevices = nil) then
   begin
     FNodeDevices := tvItem.Items.Add(nil, 'Devices');
@@ -309,11 +296,9 @@ begin
       FNodeDevices.Expand(False);
   end;
 
-  // Limpa filhos atuais (opcional; remova se quiser manter existentes)
   if Assigned(FNodeDevices) then
     FNodeDevices.DeleteChildren;
 
-  // Busca no banco via dmBase (usa zqryaux)
   if not dmBase.BuscaDevices('') then
     Exit;
 
@@ -323,163 +308,32 @@ begin
     DevId   := dmBase.zqryaux.FieldByName('id_device').AsLargeInt;
     DevNome := dmBase.zqryaux.FieldByName('nome').AsString;
 
-    // Cria nó como FILHO de FNodeDevices
     N := tvItem.Items.AddChild(FNodeDevices, DevNome);
     n.ImageIndex:= 1;
 
-    // Armazena o ID no nó:
-    // OBS: TTreeNode no Lazarus NÃO tem Tag; usamos Data (Pointer) com cast seguro.
     if Assigned(N) then
       N.Data := Pointer(PtrInt(DevId));
 
     dmBase.zqryaux.Next;
   end;
 
-  // Mantém o grupo aberto
   if Assigned(FNodeDevices) then
     FNodeDevices.Expand(False);
 end;
 
 procedure Tfrmmain.VerreDevices();
 begin
-   chamarTipo1;
-   //chamarTipo2;
+  chamarTipo1;
+  chamarTipo2;
 end;
-
 
 procedure Tfrmmain.chamarTipo1;
 var
   L: TStringList;
-  Lines: TList;
   DevId: Int64;
   porta: string;
-  buf, chunk: String;
-  lastT, lastH: Double;
-  gotT, gotH: Boolean;
-
-  // ===================== Funções auxiliares =====================
-
-  procedure SplitBufferToLines(const ABuffer: AnsiString; out Lines: TList);
-var
-  i, start, len: Integer;
-  s: string;
-  P: PChar;
-begin
-  Lines := TList.Create;
-  len := Length(ABuffer);
-  if len = 0 then Exit;
-
-  start := 1;
-  for i := 1 to len do
-  begin
-    if (ABuffer[i] = #10) then
-    begin
-      s := Trim(StringReplace(Copy(ABuffer, start, i - start), #13, '', [rfReplaceAll]));
-      if s <> '' then
-      begin
-        P := StrNew(PChar(s));
-        Lines.Add(Pointer(P));
-      end;
-      start := i + 1;
-    end;
-  end;
-
-  // última linha (sem LF)
-  if start <= len then
-  begin
-    s := Trim(StringReplace(Copy(ABuffer, start, len - start + 1), #13, '', [rfReplaceAll]));
-    if s <> '' then
-    begin
-      P := StrNew(PChar(s));
-      Lines.Add(Pointer(P));
-    end;
-  end;
-end;
-
-
-  // Libera memória do TList
-  procedure FreeLines(var Lines: TList);
-  var
-    i: Integer;
-  begin
-    if Lines = nil then Exit;
-    for i := 0 to Lines.Count - 1 do
-      StrDispose(PChar(Lines[i]));
-    FreeAndNil(Lines);
-  end;
-
-  // Conversão com vírgula ou ponto
-  function TryParseFloatDot(const S: string; out V: Double): Boolean;
-  var
-    tmp: string;
-  begin
-    tmp := StringReplace(Trim(S), ',', '.', [rfReplaceAll]);
-    Result := TextToFloat(PChar(tmp), V, fvExtended);
-  end;
-
-  // t=<num>C ou t=<num>°C
-  function TryParseTempLine(const Line: string; out T: Double): Boolean;
-  var
-    s, core: string;
-  begin
-    Result := False;
-    s := Trim(Line);
-    if (Length(s) < 4) or (LowerCase(Copy(s, 1, 2)) <> 't=') then Exit;
-
-    if (RightStr(s, 2).ToLower = '°c') then
-      core := Copy(s, 3, Length(s) - 2)
-    else if (AnsiLastChar(s)^ in ['C', 'c']) then
-      core := Copy(s, 3, Length(s) - 3 + 1)
-    else
-      Exit;
-
-    core := Trim(core);
-    Result := TryParseFloatDot(core, T);
-  end;
-
-  // h=<num>%
-  function TryParseHumLine(const Line: string; out H: Double): Boolean;
-  var
-    s, core: string;
-  begin
-    Result := False;
-    s := Trim(Line);
-    if (Length(s) < 3) or (LowerCase(Copy(s, 1, 2)) <> 'h=') then Exit;
-    if not (AnsiLastChar(s)^ = '%') then Exit;
-
-    core := Trim(Copy(s, 3, Length(s) - 3 + 1));
-    Result := TryParseFloatDot(core, H);
-  end;
-
-  // Processa cada linha
-  procedure ProcessLine(const S: string);
-  var
-    v: Double;
-  begin
-    if TryParseTempLine(S, v) then
-    begin
-      lastT := v;
-      gotT := True;
-      RegistraLog(Format('Tipo1: temperatura lida t=%.2f°C', [lastT]));
-    end
-    else if TryParseHumLine(S, v) then
-    begin
-      lastH := v;
-      gotH := True;
-      RegistraLog(Format('Tipo1: umidade lida h=%.2f%%', [lastH]));
-    end
-    else
-      RegistraLog('Tipo1: linha ignorada -> ' + S);
-  end;
-
-var
-  i: Integer;
-  oneLine: string;
-  P: PChar;
-
 begin
   L := TStringList.Create;
-  Lines := nil;
   try
     // Lista portas do tipo 1
     if not dmBase.ListaPortasTipo1(L) then
@@ -503,40 +357,54 @@ begin
     end;
 
     porta := L[0];
+
+    // OBS: lógica existente do seu código – busca id por "nome"
     DevId := dmBase.BuscaDeviceIdPorNome(porta);
     dmBase.serialdevid := DevId;
 
     if porta = '' then
     begin
-      RegistraLog('Porta serial não encontrada para o device ' + IntToStr(DevId));
+      RegistraLog('Porta serial não encontrada (porta vazia).');
+      if DevId > 0 then dmBase.UpdateDeviceStatus(DevId, False); // INATIVO
       tmProcessa.Enabled := False;
       Exit;
     end;
 
-    // Conecta
+    // Configura e conecta
     dmBase.LazSerial1.Device := porta;
 
     if not dmBase.LazSerial1.Active then
     begin
       RegistraLog('Tentando conectar na porta ' + porta);
-      dmBase.AtualizaConSerial(True);
-      if not dmBase.LazSerial1.Active then
+      if not dmBase.AtualizaConSerial(True) then
       begin
-        RegistraLog('Falha ao conectar na porta ' + porta);
+        RegistraLog('Falha ao conectar (AtualizaConSerial retornou False) em ' + porta);
+        if DevId > 0 then dmBase.UpdateDeviceStatus(DevId, False); // INATIVO
         tmProcessa.Enabled := False;
         Exit;
       end;
+
+      if not dmBase.LazSerial1.Active then
+      begin
+        RegistraLog('Falha ao conectar na porta ' + porta);
+        if DevId > 0 then dmBase.UpdateDeviceStatus(DevId, False); // INATIVO
+        tmProcessa.Enabled := False;
+        Exit;
+      end;
+
       RegistraLog('Conectado na porta ' + porta);
+      if DevId > 0 then dmBase.UpdateDeviceStatus(DevId, True); // ATIVO
+    end
+    else
+    begin
+      // já estava ativo
+      if DevId > 0 then dmBase.UpdateDeviceStatus(DevId, True);
     end;
 
-
-
   finally
-    FreeLines(Lines);
     L.Free;
   end;
 end;
-
 
 procedure Tfrmmain.chamarTipo2;
 var
@@ -546,15 +414,12 @@ var
   tempVal, humVal: Double;
   o: TJSONObject;
   DevId: Int64;
+  ok: Boolean;
 begin
   L := TStringList.Create;
-  if not dmBase.ListaPortasTipo2(L) then
-  begin
-    L.Free;
-    Exit;
-  end;
-
   try
+    if not dmBase.ListaPortasTipo2(L) then Exit;
+
     for i := 0 to L.Count - 1 do
     begin
       // id_device vem em Objects[i] como Pointer -> PtrInt
@@ -563,48 +428,51 @@ begin
       else
         DevId := -1;
 
-      // Cada item da lista é uma "porta"/IP
-      if dmBase.ConsultaIPTempHum(L[i], J) then
+      ok := dmBase.ConsultaIPTempHum(L[i], J);
       try
-        tempVal := 0;
-        humVal  := 0;
-
-        if (J <> nil) and (J.JSONType = jtObject) then
+        if ok then
         begin
-          o := TJSONObject(J);
-          if o.Find('temperature') <> nil then
-            tempVal := o.Find('temperature').AsFloat;
-          if o.Find('humidity') <> nil then
-            humVal := o.Find('humidity').AsFloat;
-        end;
+          // Conseguiu falar com o endpoint -> ATIVO
+          if DevId > 0 then dmBase.UpdateDeviceStatus(DevId, True);
 
-        // Exemplo simples: atualiza a barra de status com o último IP/leituras
-        if ((tempVal <> 0) and (humVal <> 0)) then
-          StatusBar1.SimpleText :=
-            Format('%s -> T=%.2f °C  H=%.2f %%', [L[i], tempVal, humVal])
+          tempVal := 0;
+          humVal  := 0;
+
+          if (J <> nil) and (J.JSONType = jtObject) then
+          begin
+            o := TJSONObject(J);
+            if o.Find('temperature') <> nil then
+              tempVal := o.Find('temperature').AsFloat;
+            if o.Find('humidity') <> nil then
+              humVal := o.Find('humidity').AsFloat;
+          end;
+
+          if ((tempVal <> 0) and (humVal <> 0)) then
+            StatusBar1.SimpleText :=
+              Format('%s -> T=%.2f °C  H=%.2f %%', [L[i], tempVal, humVal])
+          else
+            StatusBar1.SimpleText := L[i] + ' -> JSON recebido (sem campos previstos)';
+
+          if DevId > 0 then
+          begin
+            if (tempVal <> 0) then
+              dmBase.RegistraMedida(DevId, 0, tempVal);
+            if (humVal <> 0) then
+              dmBase.RegistraMedida(DevId, 1, humVal);
+          end;
+        end
         else
-          StatusBar1.SimpleText := L[i] + ' -> JSON recebido (sem campos previstos)';
-
-        // Registrar em banco usando o DevId derivado do Pointer
-        if DevId > 0 then
         begin
-          // 0 = temperatura, 1 = humidade
-          if (tempVal <> 0) then
-            dmBase.RegistraMedida(DevId, 0, tempVal);
-          if (humVal <> 0) then
-            dmBase.RegistraMedida(DevId, 1, humVal);
+          // Falhou consulta HTTP -> INATIVO
+          StatusBar1.SimpleText := L[i] + ' -> falha ao obter JSON';
+          if DevId > 0 then dmBase.UpdateDeviceStatus(DevId, False);
         end;
-
       finally
         J.Free;
-      end
-      else
-      begin
-        StatusBar1.SimpleText := L[i] + ' -> falha ao obter JSON';
       end;
     end;
   finally
-    L.Free; // seguro, pois OwnsObjects=False
+    L.Free;
   end;
 end;
 
@@ -612,22 +480,18 @@ procedure Tfrmmain.ChamaMedidas();
 begin
   if (frmmedidas = nil) then
   begin
-   frmmedidas := Tfrmmedidas.create(self);
+    frmmedidas := Tfrmmedidas.create(self);
   end;
   frmmedidas.show();
-
 end;
 
 procedure Tfrmmain.Configuracoes();
 begin
-   frmConfiguracoes := TfrmConfiguracoes.Create(self);
-   frmConfiguracoes.showmodal;
-   frmConfiguracoes.free;
-   frmConfiguracoes := nil;
+  frmConfiguracoes := TfrmConfiguracoes.Create(self);
+  frmConfiguracoes.showmodal;
+  frmConfiguracoes.free;
+  frmConfiguracoes := nil;
 end;
-
-
-
 
 end.
 

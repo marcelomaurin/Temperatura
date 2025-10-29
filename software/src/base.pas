@@ -10,6 +10,9 @@ uses
   fphttpclient, opensslsockets, fpjson, jsonparser, DB,
   setmain, DataPortUART, LazSerial, LazSynaSer, Math;
 
+const
+  ValorRef = 10.0; // limite de variação aceitável
+
 type
   TOnTcpJsonReceived = procedure(Sender: TObject; const AJson: TJSONData) of object;
 
@@ -36,6 +39,11 @@ type
     FHttpTimeoutMs: Integer;
     FOnTcpJsonReceived: TOnTcpJsonReceived;
 
+    FLastTemp: Double;
+    FLastHum: Double;
+    FHasLastTemp: Boolean;
+    FHasLastHum:  Boolean;
+
     FSerialBuf: RawByteString;
     FLines: TStringList;
 
@@ -54,8 +62,17 @@ type
     function StopBitsFromCode(Code: Integer): TSerialStopBits;
 
     procedure ProcessSerialBuffer;
+
+    // ---- helpers de schema ----
+    function DevicesHasField(const AField: string): Boolean;
+    function DevicesHasStatusField(out AFieldName: string): Boolean;
+
   public
     serialdevid : integer; //Posicao da serial devid
+
+    function CreateDevice(const ANome, APorta: string; const ATipo: Integer = 0): Int64;
+    function UpdateDevice(const AIdDevice: Int64; const ANome, APorta: string;
+        const ATipo: Integer = -1): Boolean;
 
     { ====== BANCO ====== }
     procedure AplicaConfigBanco;
@@ -67,7 +84,7 @@ type
 
     function GetIDPorta(const AID: Int64): string;
 
-    { ====== TCP/HTTP + JSON ====== }
+    { ===== TCP/HTTP + JSON ===== }
     procedure HttpConfig(const ABaseUrl: string; const ATimeoutMs: Integer = 5000);
     function TcpGet(const APath: string; out AResponseText: string): Boolean;
     function TcpGetJson(const APath: string; out JsonResp: TJSONData): Boolean;
@@ -95,6 +112,9 @@ type
       const ADataInicio, ADataFim: TDateTime): Boolean;
     function GeraRelatorioDiario(const ADataInicio, ADataFim: TDateTime): Boolean;
     function BuscaDeviceIdPorNome(const ANome: string): Int64;
+
+    // ====== NOVO: atualizar status/ativo ======
+    procedure UpdateDeviceStatus(const AIdDevice: Int64; const AAtivo: Boolean);
   end;
 
 var
@@ -105,7 +125,6 @@ implementation
 {$R *.lfm}
 
 uses
-  // para usar main.FSETMAIN sem ciclo na interface
   main;
 
 { ---------- helper SQL genérico ---------- }
@@ -185,11 +204,12 @@ begin
     'select * '+
     'from devices '+
     'where tipo = 1 '+
+    ' and ativo = 1 '+
     'order by porta';
-
 
   try
     zqryaux.Open;
+
     while not zqryaux.EOF do
     begin
       porta := zqryaux.FieldByName('porta').AsString;
@@ -199,7 +219,7 @@ begin
     end;
     Result := (APortas.Count > 0);
   except
-    // mantém False
+    Result :=  false;
   end;
 end;
 
@@ -222,6 +242,7 @@ begin
     'where tipo = :t '+
     '  and porta is not null '+
     '  and trim(porta) <> '''' '+
+    '  and ativo = 1 '+
     'order by porta';
   zqryaux.ParamByName('t').AsInteger := 2;
 
@@ -304,6 +325,11 @@ end;
 procedure TdmBase.ResetLastValues;
 begin
   if Assigned(FLastVals) then FLastVals.Clear;
+
+  FHasLastTemp := False;
+  FHasLastHum  := False;
+  FLastTemp    := 0.0;
+  FLastHum     := 0.0;
 end;
 
 function TdmBase.RegistraMedida(const AIdDevice: Int64; ATipoMedida: Integer;
@@ -414,6 +440,12 @@ begin
   FLastVals.CaseSensitive := False;
   FLastVals.Sorted        := False;
   FLastVals.Duplicates    := dupIgnore;
+
+  FHasLastTemp := False;
+  FHasLastHum  := False;
+  FLastTemp    := 0.0;
+  FLastHum     := 0.0;
+
   ResetLastValues;
 end;
 
@@ -434,7 +466,7 @@ end;
 
 procedure TdmBase.LazSerial1RxData(Sender: TObject);
 
-  // Extrai o primeiro número (sinal e separador decimal aceitos) de uma substring
+  // Extrai o primeiro número (aceita sinal e vírgula/ponto)
   function ExtractNumber(const S: string; out V: Double): Boolean;
   var
     numStr: string;
@@ -450,10 +482,8 @@ procedure TdmBase.LazSerial1RxData(Sender: TObject);
       ch := S[i];
       if (ch in ['0'..'9']) or (ch in ['+','-']) or (ch in ['.',',']) then
         numStr := numStr + ch
-      else
-      begin
-        if numStr <> '' then Break;
-      end;
+      else if numStr <> '' then
+        Break;
     end;
 
     numStr := Trim(numStr);
@@ -485,55 +515,92 @@ procedure TdmBase.LazSerial1RxData(Sender: TObject);
   end;
 
 var
-  raw, norm, linha, sTemp, sHum: string;
+  rawChunk: string;
+  pLF: SizeInt;
+  linha: string;
+  sTemp, sHum: string;
   tempVal, humVal: Double;
   okT, okH: Boolean;
-  sl: TStringList;
-  i: Integer;
 begin
   if not LazSerial1.DataAvailable then Exit;
 
-  raw := LazSerial1.ReadData;  // pode vir 1+ linhas
-  frmmain.RegistraLog(raw);
-  if raw = '' then Exit;
+  // Lê dados novos
+  rawChunk := LazSerial1.ReadData;
+  if rawChunk = '' then Exit;
 
-  // Normaliza quebras de linha para LF e percorre cada linha
-  norm := StringReplace(raw, #13#10, #10, [rfReplaceAll]);
-  norm := StringReplace(norm, #13, #10, [rfReplaceAll]);
+  frmmain.RegistraLog(rawChunk);
 
-  sl := TStringList.Create;
-  try
-    {$IFDEF WINDOWS}
-    sl.LineBreak := #10; // garante que #10 seja tratado como separador no Windows
-    {$ENDIF}
-    sl.Text := norm;
+  // Normaliza: CRLF -> LF; remove CR solto
+  rawChunk := StringReplace(rawChunk, #13#10, #10, [rfReplaceAll]);
+  rawChunk := StringReplace(rawChunk, #13, '',   [rfReplaceAll]);
 
-    for i := 0 to sl.Count - 1 do
+  // Acumula num buffer persistente até formar linhas completas
+  FSerialBuf := FSerialBuf + rawChunk;
+
+  // Processa apenas linhas COMPLETAS (terminadas em #10)
+  while True do
+  begin
+    pLF := Pos(#10, FSerialBuf);
+    if pLF = 0 then Break;
+
+    // Extrai a linha (sem o terminador #10)
+    linha := Copy(FSerialBuf, 1, pLF - 1);
+    Delete(FSerialBuf, 1, pLF);
+
+    linha := Trim(linha);
+    if linha = '' then Continue;
+
+    // Captura T=...C e H=...%
+    sTemp := SliceAfterTokenUntil(linha, 'T=', ['C','c']);
+    sHum  := SliceAfterTokenUntil(linha, 'H=', ['%']);
+
+    okT := ExtractNumber(sTemp, tempVal);
+    okH := ExtractNumber(sHum,  humVal);
+
+    if serialdevid >= 0 then
     begin
-      linha := Trim(sl[i]);
-      if linha = '' then Continue;
-
-      // Exemplo esperado:
-      // [DHT] T=24.8C -> cal=24.8C | H=45.1% -> cal=45.1%
-      sTemp := SliceAfterTokenUntil(linha, 'T=', ['C','c']);
-      sHum  := SliceAfterTokenUntil(linha, 'H=', ['%']);
-
-      okT := ExtractNumber(sTemp, tempVal);
-      okH := ExtractNumber(sHum,  humVal);
-
-      if (serialdevid >= 0) then
+      // ---- Temperatura (global) ----
+      if okT then
       begin
-        if okT then
-          dmBase.RegistraMedida(serialdevid, 0, tempVal);
-        if okH then
-          dmBase.RegistraMedida(serialdevid, 1, humVal);
+        if FHasLastTemp and (Abs(tempVal - FLastTemp) >= ValorRef) then
+          frmmain.RegistraLog(Format('Temperatura descartada (Δ=%.2f >= %.2f): %.2f',
+                                     [Abs(tempVal - FLastTemp), ValorRef, tempVal]))
+        else
+        begin
+          if RegistraMedida(serialdevid, 0, tempVal) > 0 then
+            frmmain.RegistraLog(Format('Temperatura registrada: %.2f', [tempVal]));
+          FLastTemp    := tempVal;
+          FHasLastTemp := True;
+        end;
       end;
-    end;
-  finally
-    sl.Free;
-  end;
-end;
 
+      // ---- Umidade (global) ----
+      if okH then
+      begin
+        if FHasLastHum and (Abs(humVal - FLastHum) >= ValorRef) then
+          frmmain.RegistraLog(Format('Umidade descartada (Δ=%.2f >= %.2f): %.2f',
+                                     [Abs(humVal - FLastHum), ValorRef, humVal]))
+        else
+        begin
+          if RegistraMedida(serialdevid, 1, humVal) > 0 then
+            frmmain.RegistraLog(Format('Umidade registrada: %.2f', [humVal]));
+          FLastHum    := humVal;
+          FHasLastHum := True;
+        end;
+      end;
+    end
+    else
+    begin
+      // Sem id válido: apenas log
+      if okT then frmmain.RegistraLog(Format('Temperatura lida (sem id): %.2f', [tempVal]));
+      if okH then frmmain.RegistraLog(Format('Umidade lida (sem id): %.2f', [humVal]));
+    end;
+  end;
+
+  // Evita crescimento infinito caso nunca chegue LF
+  if Length(FSerialBuf) > 1024*1024 then
+    FSerialBuf := RightStr(FSerialBuf, 64*1024);
+end;
 
 procedure TdmBase.LazSerial1Status(Sender: TObject; Reason: THookSerialReason;
   const Value: string);
@@ -712,6 +779,122 @@ begin
   Result := L + '/' + R;
 end;
 
+// Verifica se a tabela tbldevices expõe certo campo
+function TdmBase.DevicesHasField(const AField: string): Boolean;
+begin
+  Result := False;
+  try
+    tbldevices.Open;
+    Result := (tbldevices.FindField(AField) <> nil);
+  except
+    // silencioso
+  end;
+end;
+
+// Verifica se existe 'status' ou 'ativo' e retorna o nome encontrado
+function TdmBase.DevicesHasStatusField(out AFieldName: string): Boolean;
+begin
+  AFieldName := '';
+  if DevicesHasField('status') then
+  begin
+    AFieldName := 'status';
+    Exit(True);
+  end;
+  if DevicesHasField('ativo') then
+  begin
+    AFieldName := 'ativo';
+    Exit(True);
+  end;
+  Result := False;
+end;
+
+function TdmBase.CreateDevice(const ANome, APorta: string; const ATipo: Integer): Int64;
+var
+  temTipo, temDtcad: Boolean;
+begin
+  Result := -1;
+
+  if not ZConnection1.Connected then
+  try ZConnection1.Connect; except Exit; end;
+
+  temTipo := DevicesHasField('tipo');
+  temDtcad := DevicesHasField('dtcad');
+
+  zqryaux.Close;
+  if temTipo and temDtcad then
+    zqryaux.SQL.Text :=
+      'insert into devices (nome, porta, tipo, dtcad) values (:n, :p, :t, :d)'
+  else if temTipo then
+    zqryaux.SQL.Text :=
+      'insert into devices (nome, porta, tipo) values (:n, :p, :t)'
+  else if temDtcad then
+    zqryaux.SQL.Text :=
+      'insert into devices (nome, porta, dtcad) values (:n, :p, :d)'
+  else
+    zqryaux.SQL.Text :=
+      'insert into devices (nome, porta) values (:n, :p)';
+
+  zqryaux.ParamByName('n').AsString := Trim(ANome);
+  zqryaux.ParamByName('p').AsString := Trim(APorta);
+  if temTipo then
+    zqryaux.ParamByName('t').AsInteger := ATipo;
+  if temDtcad then
+    zqryaux.ParamByName('d').AsDateTime := Now;
+
+  try
+    zqryaux.ExecSQL;
+
+    zqryaux.SQL.Text := 'select last_insert_rowid() as id';
+    zqryaux.Open;
+    try
+      if not zqryaux.FieldByName('id').IsNull then
+        Result := zqryaux.FieldByName('id').AsLargeInt;
+    finally
+      zqryaux.Close;
+    end;
+
+    DevicesOpenAll;
+  except
+    Result := -1;
+  end;
+end;
+
+function TdmBase.UpdateDevice(const AIdDevice: Int64; const ANome, APorta: string;
+  const ATipo: Integer): Boolean;
+var
+  temTipo: Boolean;
+begin
+  Result := False;
+  if AIdDevice <= 0 then Exit;
+
+  if not ZConnection1.Connected then
+  try ZConnection1.Connect; except Exit; end;
+
+  temTipo := DevicesHasField('tipo');
+
+  zqryaux.Close;
+  if temTipo and (ATipo >= 0) then
+    zqryaux.SQL.Text :=
+      'update devices set nome = :n, porta = :p, tipo = :t where id_device = :id'
+  else
+    zqryaux.SQL.Text :=
+      'update devices set nome = :n, porta = :p where id_device = :id';
+
+  zqryaux.ParamByName('n').AsString := Trim(ANome);
+  zqryaux.ParamByName('p').AsString := Trim(APorta);
+  if temTipo and (ATipo >= 0) then
+    zqryaux.ParamByName('t').AsInteger := ATipo;
+  zqryaux.ParamByName('id').AsLargeInt := AIdDevice;
+
+  try
+    zqryaux.ExecSQL;
+    Result := True;
+    DevicesOpenAll;
+  except
+    Result := False;
+  end;
+end;
+
 { ---------- DEVICES (consultas) ---------- }
 
 function TdmBase.DevicesOpenAll: Boolean;
@@ -795,7 +978,7 @@ begin
   zqrymedidas.SQL.Text :=
     'WITH base AS ('+
     '  SELECT '+
-    '    date(m.dthrcad) AS dia_iso,'+          //-- YYYY-MM-DD para agrupar/ordenar
+    '    date(m.dthrcad) AS dia_iso,'+
     '    m.tipomedida    AS tipomedida,'+
     '    m.valor         AS valor,'+
     '    m.dthrcad       AS dthrcad,'+
@@ -807,9 +990,7 @@ begin
     '  WHERE m.dthrcad >= :p_ini AND m.dthrcad <= :p_fim '+
     ') '+
     'SELECT '+
-    // dia exibido como dd/mm/YYYY e tipado como CHAR(10) p/ evitar Memo
     '  CAST(strftime(''%d/%m/%Y'', b.dia_iso) AS CHAR(10)) AS dia, '+
-    // tipo como CHAR(12): "Temperatura" (11) / "Humidade" (8)
     '  CAST(CASE b.tipomedida '+
     '         WHEN 0 THEN ''Temperatura'' '+
     '         WHEN 1 THEN ''Humidade'' '+
@@ -818,7 +999,6 @@ begin
     '  MIN(b.valor) AS valor_min, '+
     '  MAX(b.valor) AS valor_max, '+
     '  MAX(CASE WHEN b.rn = 1 THEN b.valor END) AS valor_ultimo, '+
-    // coluna oculta só para ordenar corretamente por data
     '  b.dia_iso AS dia_ord '+
     'FROM base b '+
     'GROUP BY b.dia_iso, b.tipomedida '+
@@ -830,11 +1010,6 @@ begin
   zqrymedidas.Open;
   Result := not zqrymedidas.IsEmpty;
 end;
-
-
-
-
-
 
 { ---------- INSERT DEVICE ---------- }
 
@@ -918,6 +1093,31 @@ begin
   except
     JsonResp := nil;
     Result   := False;
+  end;
+end;
+
+{ ---------- NOVO: Atualização do status/ativo ---------- }
+
+procedure TdmBase.UpdateDeviceStatus(const AIdDevice: Int64; const AAtivo: Boolean);
+var
+  fStatus: string;
+begin
+  if AIdDevice <= 0 then Exit;
+  if not DevicesHasStatusField(fStatus) then Exit; // não há campo status/ativo; ignora silenciosamente
+
+  if not ZConnection1.Connected then
+  try ZConnection1.Connect; except Exit; end;
+
+  zqryaux.Close;
+  zqryaux.SQL.Text :=
+    Format('update devices set %s = :v where id_device = :id', [fStatus]);
+  // 1/0 para facilitar com tipos inteiros/boolean no SQLite
+  zqryaux.ParamByName('v').AsInteger := Ord(AAtivo);
+  zqryaux.ParamByName('id').AsLargeInt := AIdDevice;
+  try
+    zqryaux.ExecSQL;
+  except
+    // silencioso
   end;
 end;
 

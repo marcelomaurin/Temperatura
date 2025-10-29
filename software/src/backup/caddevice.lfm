@@ -6,6 +6,7 @@ object frmcaddevice: Tfrmcaddevice
   Caption = 'frmcaddevice'
   ClientHeight = 437
   ClientWidth = 1109
+  Position = poMainFormCenter
   LCLVersion = '4.0.0.4'
   OnCreate = FormCreate
   OnShow = FormShow
@@ -138,9 +139,9 @@ object frmcaddevice: Tfrmcaddevice
       Height = 315
       Top = 1
       Width = 932
-      ActivePage = tbPesquisa
+      ActivePage = tbEdit
       Align = alClient
-      TabIndex = 0
+      TabIndex = 1
       TabOrder = 0
       object tbPesquisa: TTabSheet
         Caption = 'Pesquisa'
@@ -180,16 +181,6 @@ object frmcaddevice: Tfrmcaddevice
         ClientHeight = 287
         ClientWidth = 924
         Enabled = False
-        object dbnome: TDBEdit
-          Left = 8
-          Height = 23
-          Top = 36
-          Width = 224
-          DataField = 'nome'
-          DataSource = dscaddevices
-          MaxLength = 0
-          TabOrder = 0
-        end
         object Label1: TLabel
           Left = 8
           Height = 15
@@ -217,7 +208,7 @@ object frmcaddevice: Tfrmcaddevice
           Top = 232
           Width = 128
           Caption = 'Salvar'
-          TabOrder = 1
+          TabOrder = 0
           OnClick = btSalvarClick
         end
         object btCancelar: TButton
@@ -226,32 +217,38 @@ object frmcaddevice: Tfrmcaddevice
           Top = 232
           Width = 128
           Caption = 'Cancelar'
-          TabOrder = 2
+          TabOrder = 1
           OnClick = btCancelarClick
         end
-        object DBComboBox1: TDBLookupComboBox
-          Left = 8
+        object edNome: TEdit
+          Left = 9
           Height = 23
-          Top = 88
-          Width = 140
-          DataField = 'tipo'
-          DataSource = dscaddevices
-          KeyField = 'id_tipo'
-          ListField = 'descricao'
-          ListFieldIndex = 0
-          ListSource = dstipos
-          LookupCache = False
-          TabOrder = 3
+          Top = 38
+          Width = 256
+          TabOrder = 2
         end
-        object dbnome1: TDBEdit
-          Left = 8
+        object edPorta: TEdit
+          Left = 9
           Height = 23
           Top = 136
-          Width = 224
-          DataField = 'porta'
-          DataSource = dscaddevices
+          Width = 256
+          TabOrder = 3
+        end
+        object lkTipos: TRxLookupEdit
+          Left = 9
+          Height = 23
+          Top = 88
+          Width = 175
+          ButtonWidth = 15
           MaxLength = 0
+          NumGlyphs = 1
+          PasswordChar = #0
           TabOrder = 4
+          Text = 'lkTipos'
+          LookupDisplay = 'descricao'
+          LookupField = 'id_tipo'
+          LookupSource = dstipos
+          PopUpFormOptions.Columns = <>
         end
       end
     end
