@@ -34,6 +34,7 @@ type
     FEmpresa     : string;
     FLocalizacao : string;
     FLocalBanco  : string;
+    FVarrendo    : boolean;
 
     procedure Default;
     procedure SetPOSX(value : Integer);
@@ -69,6 +70,7 @@ type
     property Empresa     : string  read FEmpresa     write SetEmpresa;
     property Localizacao : string  read FLocalizacao write SetLocalizacao;
     property LocalBanco  : string  read FLocalBanco  write SetLocalBanco;
+    property Varrendo    : boolean read FVarrendo    write FVarrendo;
   end;
 
 var
@@ -116,6 +118,8 @@ begin
   FDTBIT := 0;  // 8 bits
   FPARI  := 0;  // N
   FSTBIT := 0;  // 1 stop
+
+  FVarrendo := false; //Inicia varrendo
 
   FEmpresa     := 'maurinsoft';
   FLocalizacao := 'nothing';
@@ -166,6 +170,9 @@ begin
 
   if BuscaChave(arquivo,'LOCALBANCO:',posicao) then
     FLocalBanco := RetiraInfo(arquivo.Strings[posicao]);
+
+  if BuscaChave(arquivo,'VARRENDO:',posicao) then
+    FVARRENDO := iif(RetiraInfo(arquivo.Strings[posicao])='1',true,false);
 end;
 
 procedure TSetMain.SalvaContexto;
@@ -184,6 +191,7 @@ begin
   arquivo.Append('EMPRESA:'     + FEmpresa);
   arquivo.Append('LOCALIZACAO:' + FLocalizacao);
   arquivo.Append('LOCALBANCO:'  + FLocalBanco);
+  arquivo.Append('VARRENDO:'    + iif(FVARRENDO,'1','0'));
   arquivo.SaveToFile(FPATH + filename);
 end;
 

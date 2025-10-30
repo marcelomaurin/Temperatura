@@ -6,13 +6,14 @@ interface
 
 uses
   Classes, SysUtils, Forms, Controls, Graphics, Dialogs, ExtCtrls, ComCtrls,
-  StdCtrls, Buttons;
+  StdCtrls, Buttons, setmain;
 
 type
 
   { TfrmConfiguracoes }
 
   TfrmConfiguracoes = class(TForm)
+    ckvarrendo: TCheckBox;
     edPorta: TEdit;
     Image1: TImage;
     Image2: TImage;
@@ -25,6 +26,7 @@ type
     tsSerial: TTabSheet;
     procedure btCancelarClick(Sender: TObject);
     procedure btSalvarClick(Sender: TObject);
+    procedure FormCreate(Sender: TObject);
   private
 
   public
@@ -51,9 +53,16 @@ begin
   Close;
 end;
 
+procedure TfrmConfiguracoes.FormCreate(Sender: TObject);
+begin
+  ckvarrendo.Checked := fsetmain.Varrendo;
+  edPorta.Text := fsetmain.COMPORT;
+end;
+
 procedure TfrmConfiguracoes.Salvar();
 begin
-
+   fsetmain.Varrendo := ckvarrendo.Checked;
+   fsetmain.COMPORT :=  edPorta.Text;
 end;
 
 end.

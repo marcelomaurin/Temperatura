@@ -116,6 +116,7 @@
         <Filename Value="hint.pas"/>
         <IsPartOfProject Value="True"/>
         <ComponentName Value="frmHint"/>
+        <HasResources Value="True"/>
         <ResourceBaseClass Value="Form"/>
       </Unit>
       <Unit>

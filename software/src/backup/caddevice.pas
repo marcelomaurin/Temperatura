@@ -17,6 +17,7 @@ type
     Button1: TButton;
     Button2: TButton;
     btNovo: TButton;
+    btAtivar: TButton;
     cbPesquisaTipo: TComboBox;
     CSVDataset1: TCSVDataset;
     dscaddevices: TDataSource;
@@ -41,6 +42,7 @@ type
     tbPesquisa: TTabSheet;
     tbEdit: TTabSheet;
     btCadastrar: TToggleBox;
+    procedure btAtivarClick(Sender: TObject);
     procedure btCadastrarChange(Sender: TObject);
     procedure btCancelarClick(Sender: TObject);
     procedure btEditarClick(Sender: TObject);
@@ -173,6 +175,54 @@ begin
     AtivarEdicaoUI(False);
   end;
 end;
+
+procedure Tfrmcaddevice.btAtivarClick(Sender: TObject);
+var
+  ds   : TDataSet;
+  idDev: Int64;
+  ok   : Boolean;
+begin
+  ds := dsdevices.DataSet;
+
+  if (ds = nil) or ds.IsEmpty then
+  begin
+    ShowMessage('Selecione um dispositivo na lista.');
+    Exit;
+  end;
+
+  // Garante que o registro atual está salvo antes de atualizar
+  if ds.State in [dsEdit, dsInsert] then
+    ds.Post;
+
+  // Tenta identificar o ID do device
+  if ds.FindField('id_device') <> nil then
+    idDev := ds.FieldByName('id_device').AsLargeInt
+  else if ds.FindField('id') <> nil then
+    idDev := ds.FieldByName('id').AsLargeInt
+  else
+  begin
+    ShowMessage('Campo de identificação do dispositivo não encontrado (id_device/id).');
+    Exit;
+  end;
+
+  if idDev <= 0 then
+  begin
+    ShowMessage('ID de dispositivo inválido.');
+    Exit;
+  end;
+
+  // Ativa o dispositivo via UPDATE direto no banco
+  ok := dmBase.AtivarDevice(idDev);
+  if ok then
+  begin
+    dmBase.DevicesOpenAll;
+    ShowMessage('Dispositivo ativado com sucesso (status = 1).');
+  end
+  else
+    ShowMessage('Falha ao ativar o dispositivo.');
+end;
+
+
 
 procedure Tfrmcaddevice.btSalvarClick(Sender: TObject);
 var

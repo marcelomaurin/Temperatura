@@ -1444,11 +1444,11 @@ void handleHttp(EthernetClient &client){
   if(path=="/" || path=="/index.html") handleRootPage(client, query);
   else if(path=="/ws/temperatura")     handleJsonNow(client);
   else if(path=="/dht")                handleJsonNow(client);
-  else if(path=="/ws/log")             handleJsonLog(client, query);
+  //else if(path=="/ws/log")             handleJsonLog(client, query);
   else if(path=="/historico")          handleHistoricoPage(client);
   else if(path=="/export")             handleExportPage(client);
-  else if(path=="/calibracao")         handleCalibracaoPage(client, query);
-  else if(path=="/ws/calib")           handleSetCalibracao(client, query);
+  //else if(path=="/calibracao")         handleCalibracaoPage(client, query);
+  //else if(path=="/ws/calib")           handleSetCalibracao(client, query);
   else if(path=="/ws/clear") {
     sendHtmlHeader(client);
     client.println(F("<!doctype html><html><body class='p-3'>"

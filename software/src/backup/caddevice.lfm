@@ -124,6 +124,15 @@ object frmcaddevice: Tfrmcaddevice
       TabOrder = 2
       OnClick = btEditarClick
     end
+    object btAtivar: TButton
+      Left = 8
+      Height = 49
+      Top = 184
+      Width = 155
+      Caption = 'Ativar'
+      TabOrder = 3
+      OnClick = btAtivarClick
+    end
   end
   object Panel3: TPanel
     Left = 175
@@ -139,9 +148,9 @@ object frmcaddevice: Tfrmcaddevice
       Height = 315
       Top = 1
       Width = 932
-      ActivePage = tbEdit
+      ActivePage = tbPesquisa
       Align = alClient
-      TabIndex = 1
+      TabIndex = 0
       TabOrder = 0
       object tbPesquisa: TTabSheet
         Caption = 'Pesquisa'
@@ -154,23 +163,7 @@ object frmcaddevice: Tfrmcaddevice
           Width = 924
           Align = alClient
           Color = clWindow
-          Columns = <          
-            item
-              Title.Caption = 'id_device'
-              FieldName = 'id_device'
-            end          
-            item
-              Title.Caption = 'nome'
-              FieldName = 'nome'
-            end          
-            item
-              Title.Caption = 'Porta'
-              FieldName = 'porta'
-            end          
-            item
-              Title.Caption = 'dtcad'
-              FieldName = 'dtcad'
-            end>
+          Columns = <>
           DataSource = dsdevices
           ReadOnly = True
           TabOrder = 0
@@ -261,8 +254,8 @@ object frmcaddevice: Tfrmcaddevice
   end
   object dsdevices: TDataSource
     DataSet = dmBase.zqrydevices
-    Left = 48
-    Top = 200
+    Left = 208
+    Top = 224
   end
   object dscaddevices: TDataSource
     DataSet = dmBase.tbldevices

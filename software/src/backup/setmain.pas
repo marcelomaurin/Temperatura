@@ -18,8 +18,6 @@ type
   { TSetMain }
 
   TSetMain = class(TObject)
-    constructor Create();
-    destructor Destroy(); override;
   private
     arquivo      : TStringList;
     ckdevice     : Boolean;
@@ -36,8 +34,9 @@ type
     FEmpresa     : string;
     FLocalizacao : string;
     FLocalBanco  : string;
+    FVarrendo    : boolean;
 
-    procedure Default();
+    procedure Default;
     procedure SetPOSX(value : Integer);
     procedure SetPOSY(value : Integer);
     procedure SetDevice(const Value : Boolean);
@@ -51,8 +50,12 @@ type
     procedure SetEmpresa(value: string);
     procedure SetLocalizacao(value: string);
     procedure SetLocalBanco(value: string);
-
   public
+    constructor Create; virtual;
+    destructor Destroy; override;
+
+    procedure SalvaContexto;
+    procedure CarregaContexto;
 
     property device      : Boolean read ckdevice     write SetDevice;
     property posx        : Integer read FPosX        write SetPOSX;
@@ -67,86 +70,38 @@ type
     property Empresa     : string  read FEmpresa     write SetEmpresa;
     property Localizacao : string  read FLocalizacao write SetLocalizacao;
     property LocalBanco  : string  read FLocalBanco  write SetLocalBanco;
-    procedure SalvaContexto();
-    procedure CarregaContexto();
-
+    property Varrendo    : boolean read FVarrendo    write FVarrendo;
   end;
 
 var
+  // Visível globalmente — criado automaticamente no initialization
   FSETMAIN : TSetMain;
+
+// Atalhos globais seguros (opcionais)
+function GetLocalBanco: string;
+procedure SetLocalBanco(const APath: string);
 
 implementation
 
-{ ===== Setters básicos ===== }
+{ ===== Setters ===== }
 
-procedure TSetMain.SetPOSX(value: Integer);
-begin
-  FPosX := value;
-end;
+procedure TSetMain.SetPOSX(value: Integer); begin FPosX := value; end;
+procedure TSetMain.SetPOSY(value: Integer); begin FPosY := value; end;
+procedure TSetMain.SetDevice(const Value: Boolean); begin ckdevice := Value; end;
+procedure TSetMain.SetHide(value: Boolean); begin FHide := value; end;
+procedure TSetMain.SetEXEC(value: Boolean); begin FEXEC := value; end;
+procedure TSetMain.SetCOM(value: string); begin FCOM := value; end;
+procedure TSetMain.SetBAUD(value: Integer); begin FBAUD := value; end;
+procedure TSetMain.SetDTBIT(value: Integer); begin FDTBIT := value; end;
+procedure TSetMain.SetPARI(value: Integer); begin FPARI := value; end;
+procedure TSetMain.SetSTBIT(value: Integer); begin FSTBIT := value; end;
+procedure TSetMain.SetEmpresa(value: string); begin FEmpresa := value; end;
+procedure TSetMain.SetLocalizacao(value: string); begin FLocalizacao := value; end;
+procedure TSetMain.SetLocalBanco(value: string); begin FLocalBanco := value; end;
 
-procedure TSetMain.SetPOSY(value: Integer);
-begin
-  FPosY := value;
-end;
+{ ===== Defaults ===== }
 
-procedure TSetMain.SetDevice(const Value: Boolean);
-begin
-  ckdevice := Value;
-end;
-
-procedure TSetMain.SetHide(value: Boolean);
-begin
-  FHide := value;
-end;
-
-procedure TSetMain.SetEXEC(value: Boolean);
-begin
-  FEXEC := value;
-end;
-
-procedure TSetMain.SetCOM(value: string);
-begin
-  FCOM := value;
-end;
-
-procedure TSetMain.SetBAUD(value: Integer);
-begin
-  FBAUD := value;
-end;
-
-procedure TSetMain.SetDTBIT(value: Integer);
-begin
-  FDTBIT := value;
-end;
-
-procedure TSetMain.SetPARI(value: Integer);
-begin
-  FPARI := value;
-end;
-
-procedure TSetMain.SetSTBIT(value: Integer);
-begin
-  FSTBIT := value;
-end;
-
-procedure TSetMain.SetEmpresa(value: string);
-begin
-  FEmpresa := value;
-end;
-
-procedure TSetMain.SetLocalizacao(value: string);
-begin
-  FLocalizacao := value;
-end;
-
-procedure TSetMain.SetLocalBanco(value: string);
-begin
-  FLocalBanco := value;
-end;
-
-{ ===== Valores default ===== }
-
-procedure TSetMain.Default();
+procedure TSetMain.Default;
 begin
   ckdevice  := False;
   FEXEC     := False;
@@ -159,21 +114,21 @@ begin
   FCOM := 'COM13';
   {$ENDIF}
 
-  FBAUD  := 3;  // (* 2400 *), mantendo seu mapeamento original
-  FDTBIT := 0;  // 8 data bits
-  FPARI  := 0;  // Paridade N
-  FSTBIT := 0;  // Stop 1
+  FBAUD  := 3;  // 2400 (seu mapeamento)
+  FDTBIT := 0;  // 8 bits
+  FPARI  := 0;  // N
+  FSTBIT := 0;  // 1 stop
+
+  FVarrendo := false; //Inicia varrendo
 
   FEmpresa     := 'maurinsoft';
   FLocalizacao := 'nothing';
-
-  // **NOVO**: Local do banco com default solicitado
   FLocalBanco  := 'c:\db\temperatura.db';
 end;
 
-{ ===== Carregar/Salvar contexto ===== }
+{ ===== Persistência ===== }
 
-procedure TSetMain.CarregaContexto();
+procedure TSetMain.CarregaContexto;
 var
   posicao: Integer;
 begin
@@ -213,12 +168,14 @@ begin
   if BuscaChave(arquivo,'LOCALIZACAO:',posicao) then
     FLOCALIZACAO := RetiraInfo(arquivo.Strings[posicao]);
 
-  // **NOVO**: LOCALBANCO
   if BuscaChave(arquivo,'LOCALBANCO:',posicao) then
     FLocalBanco := RetiraInfo(arquivo.Strings[posicao]);
+
+  if BuscaChave(arquivo,'VARRENDO:',posicao) then
+    FVARRENDO := iif(RetiraInfo(arquivo.Strings[posicao])='1',true,false);
 end;
 
-procedure TSetMain.SalvaContexto();
+procedure TSetMain.SalvaContexto;
 begin
   arquivo.Clear;
   arquivo.Append('DEVICE:'      + iif(ckdevice,'1','0'));
@@ -233,49 +190,68 @@ begin
   arquivo.Append('STOPBIT:'     + IntToStr(FSTBIT));
   arquivo.Append('EMPRESA:'     + FEmpresa);
   arquivo.Append('LOCALIZACAO:' + FLocalizacao);
-  // **NOVO**: LOCALBANCO
   arquivo.Append('LOCALBANCO:'  + FLocalBanco);
-
+  arquivo.Append('VARRENDO:'    + iif(FVARRENDO,'1','0');
   arquivo.SaveToFile(FPATH + filename);
 end;
 
-{ ===== Construtor/Destrutor ===== }
+{ ===== Ctor/Dtor ===== }
 
-constructor TSetMain.Create();
+constructor TSetMain.Create;
 begin
   inherited Create;
   arquivo := TStringList.Create;
 
-  {$IFDEF LINUX}
   FPATH := GetAppConfigDir(False);
   if not DirectoryExists(FPATH) then
     CreateDir(FPATH);
-  {$ENDIF}
 
-  {$IFDEF WINDOWS}
-  FPATH := GetAppConfigDir(False);
-  if not DirectoryExists(FPATH) then
-    CreateDir(FPATH);
-  {$ENDIF}
+  Default;
 
   if FileExists(FPATH + filename) then
   begin
-    arquivo.LoadFromFile(FPATH + filename);
-    Default;          // garante defaults antes de sobrescrever
-    CarregaContexto;  // sobrescreve com o que existe no arquivo
-  end
-  else
-  begin
-    Default;
+    try
+      arquivo.LoadFromFile(FPATH + filename);
+      CarregaContexto;
+    except
+      // Se der erro de leitura/parse, segue com defaults
+    end;
   end;
 end;
 
-destructor TSetMain.Destroy();
+destructor TSetMain.Destroy;
 begin
-  SalvaContexto();
+  try
+    SalvaContexto;
+  except
+    // ignora erro de gravação
+  end;
   FreeAndNil(arquivo);
   inherited Destroy;
 end;
+
+{ ===== Globais auxiliares ===== }
+
+function GetLocalBanco: string;
+begin
+  if Assigned(FSETMAIN) then
+    Result := FSETMAIN.LocalBanco
+  else
+    Result := 'c:\db\temperatura.db';
+end;
+
+procedure SetLocalBanco(const APath: string);
+begin
+  if Assigned(FSETMAIN) then
+    FSETMAIN.LocalBanco := APath;
+end;
+
+initialization
+  // garante que FSETMAIN exista para qualquer unit que fizer "uses setmain"
+  FSETMAIN := TSetMain.Create;
+
+finalization
+  FreeAndNil(FSETMAIN);
 
 end.
 

@@ -69,7 +69,7 @@ type
 
   public
     serialdevid : integer; //Posicao da serial devid
-
+    function AtivarDevice(const AIdDevice: Int64): Boolean;
     function CreateDevice(const ANome, APorta: string; const ATipo: Integer = 0): Int64;
     function UpdateDevice(const AIdDevice: Int64; const ANome, APorta: string;
         const ATipo: Integer = -1): Boolean;
@@ -807,6 +807,41 @@ begin
   end;
   Result := False;
 end;
+
+function TdmBase.AtivarDevice(const AIdDevice: Int64): Boolean;
+var
+  fStatus: string;
+begin
+  Result := False;
+
+  if AIdDevice <= 0 then Exit;
+  if not DevicesHasStatusField(fStatus) then Exit; // não há 'status' ou 'ativo'
+
+  if not ZConnection1.Connected then
+  try
+    ZConnection1.Connect;
+  except
+    Exit;
+  end;
+
+  zqryaux.Close;
+  zqryaux.SQL.Text :=
+    Format('update devices set %s = 1 where id_device = :id', [fStatus]);
+  zqryaux.ParamByName('id').AsLargeInt := AIdDevice;
+
+  try
+    zqryaux.ExecSQL;
+    // Se suportado pelo driver/ZEOS, usa RowsAffected; senão, considera sucesso sem exceção
+    {$IF DECLARED(TZQuery.RowsAffected)}
+    Result := (zqryaux.RowsAffected > 0);
+    {$ELSE}
+    Result := True;
+    {$IFEND}
+  except
+    Result := False;
+  end;
+end;
+
 
 function TdmBase.CreateDevice(const ANome, APorta: string; const ATipo: Integer): Int64;
 var

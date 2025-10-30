@@ -9,10 +9,10 @@ uses
   PopupNotifier, ComCtrls, Menus, StdCtrls, DBCtrls, AnchorDockPanel,
   UniqueInstance, uplaysound, untsalesSwitch, DataPortSerial, DataPortHTTP,
   AdvLed, LedNumber, NiceSideBar, medidas, base, setmain, caddevice, fpjson,
-  jsonparser, DB, hint, configuracoes, reldiario; // <-- garantir estes na seção implementation uses;
+  jsonparser, DB, hint, configuracoes, reldiario;
 
 Const
-  Versao =  '0.5';
+  Versao =  '0.7';
 
 type
 
@@ -30,6 +30,8 @@ type
     MainMenu1: TMainMenu;
     meLog: TMemo;
     MenuItem1: TMenuItem;
+    mimostrar: TMenuItem;
+    mnesconder: TMenuItem;
     MenuItem2: TMenuItem;
     MenuItem3: TMenuItem;
     MenuItem4: TMenuItem;
@@ -45,9 +47,10 @@ type
     Panel4: TPanel;
     Panel5: TPanel;
     playsound1: Tplaysound;
-    PopupNotifier1: TPopupNotifier;
+    popTray: TPopupMenu;
     Splitter1: TSplitter;
     StatusBar1: TStatusBar;
+    TrayIcon1: TTrayIcon;
     tsLog: TTabSheet;
     tbStatus: TTabSheet;
     Timer1: TTimer;
@@ -57,15 +60,19 @@ type
     UniqueInstance1: TUniqueInstance;
     procedure btVarredura1Click(Sender: TObject);
     procedure btVarreduraClick(Sender: TObject);
+    procedure FormCloseQuery(Sender: TObject; var CanClose: Boolean);
     procedure FormCreate(Sender: TObject);
     procedure FormDestroy(Sender: TObject);
+    procedure FormShow(Sender: TObject);
     procedure HeaderControl1SectionClick(HeaderControl: TCustomHeaderControl;
       Section: THeaderSection);
+    procedure mimostrarClick(Sender: TObject);
     procedure MenuItem2Click(Sender: TObject);
     procedure MenuItem3Click(Sender: TObject);
     procedure MenuItem7Click(Sender: TObject);
     procedure MenuItem8Click(Sender: TObject);
     procedure MenuItem9Click(Sender: TObject);
+    procedure mnesconderClick(Sender: TObject);
     procedure Timer1Timer(Sender: TObject);
     procedure tmProcessaStartTimer(Sender: TObject);
     procedure tmProcessaStopTimer(Sender: TObject);
@@ -101,6 +108,7 @@ implementation
 
 procedure Tfrmmain.FormCreate(Sender: TObject);
 begin
+  PageControl1.ActivePage := tsSobre;
   // Carrega/gera configurações (srvtemp.cfg) via TSetMain
   FSETMAIN := TSetMain.Create;
   FSETMAIN.CarregaContexto;
@@ -119,6 +127,32 @@ begin
   tmProcessa.Enabled:=true;
 end;
 
+procedure Tfrmmain.FormCloseQuery(Sender: TObject; var CanClose: Boolean);
+var
+  resp: Integer;
+begin
+  resp := MessageDlg(
+    'Deseja realmente fechar o programa?' + LineEnding +
+    'Escolha "Não" para apenas minimizar.',
+    mtConfirmation, [mbYes, mbNo, mbCancel], 0
+  );
+
+  case resp of
+    mrYes:  // Fecha
+      CanClose := True;
+
+    mrNo:   // Minimiza
+      begin
+        CanClose := False;
+        Application.Minimize;
+      end;
+
+    mrCancel: // Cancela qualquer ação
+      CanClose := False;
+  end;
+end;
+
+
 procedure Tfrmmain.btVarredura1Click(Sender: TObject);
 begin
   tmProcessa.Enabled:=false;
@@ -130,6 +164,11 @@ begin
   FreeAndNil(FSETMAIN);
   FreeAndNil(frmhint);
   // dmBase será liberado automaticamente por ter Owner = Self
+end;
+
+procedure Tfrmmain.FormShow(Sender: TObject);
+begin
+
 end;
 
 procedure Tfrmmain.HeaderControl1SectionClick(
@@ -154,8 +193,13 @@ begin
   end;
   if(Section.OriginalIndex=3) then
   begin
-     //Configuraçoes
+     Configuracoes();
   end;
+end;
+
+procedure Tfrmmain.mimostrarClick(Sender: TObject);
+begin
+  frmmain.show;
 end;
 
 procedure Tfrmmain.MenuItem2Click(Sender: TObject);
@@ -184,6 +228,11 @@ begin
   ChamaRelatorioDiario();
 end;
 
+procedure Tfrmmain.mnesconderClick(Sender: TObject);
+begin
+  hide;
+end;
+
 procedure Tfrmmain.Timer1Timer(Sender: TObject);
 var
   sClock, sConn, sHint: string;
@@ -208,12 +257,16 @@ end;
 procedure Tfrmmain.tmProcessaStartTimer(Sender: TObject);
 begin
   AdvLed1.Blink:= true;
+  MessageHint('Servidor iniciou o monitoramento!');
+  Application.ProcessMessages;
+
 end;
 
 procedure Tfrmmain.tmProcessaStopTimer(Sender: TObject);
 begin
   AdvLed1.Blink:= false;
   AdvLed1.State:=lsOff;
+  MessageHint('Servidor parou o monitoramento!');
 end;
 
 procedure Tfrmmain.tmProcessaTimer(Sender: TObject);
@@ -228,6 +281,12 @@ procedure Tfrmmain.Inicializar;
 begin
   Arvore_Reset;
   AdicionaDevices; // já carrega os devices ao abrir
+  if(fsetmain.varrendo) then
+  begin
+
+     tmProcessa.Enabled:=true;
+     MessageHint('Servidor inicializado automáticamente!');
+  end;
 end;
 
 procedure Tfrmmain.Arvore_Reset;
@@ -387,6 +446,7 @@ begin
       if not dmBase.LazSerial1.Active then
       begin
         RegistraLog('Falha ao conectar na porta ' + porta);
+        MessageHint('Falha ao conectar na porta ' + porta);
         if DevId > 0 then dmBase.UpdateDeviceStatus(DevId, False); // INATIVO
         tmProcessa.Enabled := False;
         Exit;
@@ -409,7 +469,7 @@ end;
 procedure Tfrmmain.chamarTipo2;
 var
   L: TStringList;
-  i: Integer;
+  i, tentativas: Integer;
   J: TJSONData;
   tempVal, humVal: Double;
   o: TJSONObject;
@@ -428,7 +488,15 @@ begin
       else
         DevId := -1;
 
-      ok := dmBase.ConsultaIPTempHum(L[i], J);
+      ok := False;
+      tentativas := 0;
+      repeat
+        Inc(tentativas);
+        ok := dmBase.ConsultaIPTempHum(L[i], J);
+        if ok then Break;
+        Sleep(500); // espera 500 ms antes de tentar de novo
+      until (tentativas >= 3);
+
       try
         if ok then
         begin
@@ -463,8 +531,9 @@ begin
         end
         else
         begin
-          // Falhou consulta HTTP -> INATIVO
-          StatusBar1.SimpleText := L[i] + ' -> falha ao obter JSON';
+          // Falhou 3 vezes -> INATIVO
+          StatusBar1.SimpleText := L[i] + ' -> falha ao obter JSON após 3 tentativas';
+          MessageHint( L[i] + ' -> falha ao obter JSON após 3 tentativas');
           if DevId > 0 then dmBase.UpdateDeviceStatus(DevId, False);
         end;
       finally
@@ -475,6 +544,7 @@ begin
     L.Free;
   end;
 end;
+
 
 procedure Tfrmmain.ChamaMedidas();
 begin

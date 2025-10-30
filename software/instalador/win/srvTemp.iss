@@ -2,7 +2,7 @@
 ; Instalador completo do srvTemp – MAURINSOFT
 
 #define MyAppName "srvTemp"
-#define MyAppVersion "0.6"
+#define MyAppVersion "0.7"
 #define MyAppPublisher "MAURINSOFT"
 #define MyAppURL "http://maurinsoft.com.br"
 #define MyAppExeName "Temperatura.exe"
@@ -21,7 +21,7 @@ AppSupportURL={#MyAppURL}
 AppUpdatesURL={#MyAppURL}
 DefaultDirName={autopf}\{#MyAppName}
 DisableProgramGroupPage=yes
-OutputBaseFilename=srvTemp_setup_06
+OutputBaseFilename=srvTemp_setup_07
 Compression=lzma
 SolidCompression=yes
 UninstallDisplayIcon={app}\{#MyAppExeName}
