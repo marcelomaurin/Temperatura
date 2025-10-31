@@ -35,6 +35,7 @@ void loop() {
     Serial.print("Read DHT22 failed, err="); Serial.println(err);delay(2000);
     return;
   }
+  
   lcd.setCursor(0,0);
   sprintf(aux,"Temp:%s C",dtostrf(temperature,5,2,disp));
   lcd.print(aux);
@@ -42,12 +43,18 @@ void loop() {
   sprintf(aux,"Hum:%s RH",dtostrf(humidity,5,2,disp));
   lcd.print(aux);
 
+  Serial.print(F("[DHT] T=")); Serial.print(temperature,1);
+  Serial.print(F("C -> cal=")); Serial.print(temperature,1);
+  Serial.print(F("C | H="));    Serial.print(humidity,1);
+  Serial.print(F("% -> cal=")); Serial.print(humidity,1);
+  Serial.println(F("%"));
 
+/*
   Serial.print("Temperatura:");
   Serial.println((float)temperature); 
   Serial.print("Humidade:");
   Serial.println((float)humidity);
-  
+ */ 
   // DHT11 sampling rate is 1HZ.
   delay(1500);
 }

@@ -77,6 +77,8 @@ type
     procedure tmProcessaStartTimer(Sender: TObject);
     procedure tmProcessaStopTimer(Sender: TObject);
     procedure tmProcessaTimer(Sender: TObject);
+    procedure UniqueInstance1OtherInstance(Sender: TObject;
+      ParamCount: Integer; const Parameters: array of String);
   private
     FNodeDevices: TTreeNode; // guarda o nó "Devices"
 
@@ -118,6 +120,9 @@ begin
 
   // DataModule da aplicação
   dmBase := TdmBase.Create(Self);
+  UniqueInstance1.Enabled:= true;
+  Application.ProcessMessages;
+  Sleep(2000);
 
   Inicializar;
 end;
@@ -276,6 +281,22 @@ begin
   VerreDevices();
   application.ProcessMessages;
 end;
+
+procedure Tfrmmain.UniqueInstance1OtherInstance(Sender: TObject;
+  ParamCount: Integer; const Parameters: array of String);
+begin
+  // Se detectou outra instância rodando e esta não é a principal, encerra
+  if not tmProcessa.Enabled then
+  begin
+    //ShowMessage('Outra instância já está em execução. Encerrando esta...');
+    MessageHint('Outra instância já está em execução. Encerrando esta...');
+    Application.ProcessMessages;
+    Sleep(6000);
+    Application.Terminate;
+    Halt(0);
+  end;
+end;
+
 
 procedure Tfrmmain.Inicializar;
 begin

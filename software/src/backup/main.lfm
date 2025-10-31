@@ -53,6 +53,10 @@ object frmmain: Tfrmmain
           ImageIndex = 0
           Text = 'Configurações'
           Width = 110
+        end      
+        item
+          Text = 'Regras'
+          Width = 30
         end>
       OnSectionClick = HeaderControl1SectionClick
       Align = alClient
@@ -211,6 +215,8 @@ object frmmain: Tfrmmain
     Width = 5
   end
   object UniqueInstance1: TUniqueInstance
+    Identifier = 'Temperatura.exe'
+    OnOtherInstance = UniqueInstance1OtherInstance
     Left = 122
     Top = 84
   end
