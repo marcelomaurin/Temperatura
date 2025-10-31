@@ -496,13 +496,28 @@ var
   o: TJSONObject;
   DevId: Int64;
   ok: Boolean;
+  endpoint: string;
 begin
   L := TStringList.Create;
   try
-    if not dmBase.ListaPortasTipo2(L) then Exit;
+    // Lista os dispositivos do tipo 2 (HTTP/IP)
+    if not dmBase.ListaPortasTipo2(L) then
+    begin
+      RegistraLog('ListaPortasTipo2 falhou ou não retornou dados.');
+      Exit;
+    end;
+
+    if L.Count = 0 then
+    begin
+      RegistraLog('Nenhum device do tipo 2 encontrado.');
+      Exit;
+    end;
 
     for i := 0 to L.Count - 1 do
     begin
+      // Em L[i] esperamos o endpoint/host do device.
+      endpoint := L[i];
+
       // id_device vem em Objects[i] como Pointer -> PtrInt
       if Assigned(L.Objects[i]) then
         DevId := PtrInt(L.Objects[i])
@@ -511,18 +526,33 @@ begin
 
       ok := False;
       tentativas := 0;
+      J := nil;
+
+      // Até 3 tentativas para consultar o endpoint do device
       repeat
         Inc(tentativas);
-        ok := dmBase.ConsultaIPTempHum(L[i], J);
-        if ok then Break;
-        Sleep(500); // espera 500 ms antes de tentar de novo
+        RegistraLog(Format('Tipo2 [%s] tentativa %d/3...', [endpoint, tentativas]));
+
+        // Consulta o JSON de temperatura/umidade
+        if dmBase.ConsultaIPTempHum(endpoint, J) then
+        begin
+          ok := True;
+          Break;
+        end
+        else
+        begin
+          // Falha nesta tentativa
+          ok := False;
+          Sleep(500); // pequeno intervalo entre tentativas
+        end;
       until (tentativas >= 3);
 
       try
         if ok then
         begin
           // Conseguiu falar com o endpoint -> ATIVO
-          if DevId > 0 then dmBase.UpdateDeviceStatus(DevId, True);
+          if DevId > 0 then
+            dmBase.UpdateDeviceStatus(DevId, True);
 
           tempVal := 0;
           humVal  := 0;
@@ -536,26 +566,27 @@ begin
               humVal := o.Find('humidity').AsFloat;
           end;
 
-          if ((tempVal <> 0) and (humVal <> 0)) then
-            StatusBar1.SimpleText :=
-              Format('%s -> T=%.2f °C  H=%.2f %%', [L[i], tempVal, humVal])
+          if (tempVal <> 0) or (humVal <> 0) then
+            RegistraLog(Format('Tipo2 [%s] leitura -> T=%.2f °C  H=%.2f %%', [endpoint, tempVal, humVal]))
           else
-            StatusBar1.SimpleText := L[i] + ' -> JSON recebido (sem campos previstos)';
+            RegistraLog(Format('Tipo2 [%s] JSON recebido sem campos previstos (temperature/humidity).', [endpoint]));
 
+          // Grava medidas se houver id do device
           if DevId > 0 then
           begin
             if (tempVal <> 0) then
-              dmBase.RegistraMedida(DevId, 0, tempVal);
+              dmBase.RegistraMedida(DevId, 0, tempVal); // 0 = temperatura
             if (humVal <> 0) then
-              dmBase.RegistraMedida(DevId, 1, humVal);
+              dmBase.RegistraMedida(DevId, 1, humVal); // 1 = umidade
           end;
         end
         else
         begin
           // Falhou 3 vezes -> INATIVO
-          StatusBar1.SimpleText := L[i] + ' -> falha ao obter JSON após 3 tentativas';
-          MessageHint( L[i] + ' -> falha ao obter JSON após 3 tentativas');
-          if DevId > 0 then dmBase.UpdateDeviceStatus(DevId, False);
+          RegistraLog(Format('Tipo2 [%s] falhou em 3 tentativas. Marcando INATIVO.', [endpoint]));
+          MessageHint(Format('%s -> falha ao obter JSON após 3 tentativas', [endpoint]));
+          if DevId > 0 then
+            dmBase.UpdateDeviceStatus(DevId, False); // INATIVO
         end;
       finally
         J.Free;
@@ -565,6 +596,7 @@ begin
     L.Free;
   end;
 end;
+
 
 
 procedure Tfrmmain.ChamaMedidas();
