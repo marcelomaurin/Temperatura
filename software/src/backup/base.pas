@@ -61,6 +61,8 @@ type
     function ParityCharFromCode(Code: Integer): AnsiChar;
     function StopBitsFromCode(Code: Integer): TSerialStopBits;
 
+
+
     procedure ProcessSerialBuffer;
 
     // ---- helpers de schema ----
@@ -112,6 +114,7 @@ type
       const ADataInicio, ADataFim: TDateTime): Boolean;
     function GeraRelatorioDiario(const ADataInicio, ADataFim: TDateTime): Boolean;
     function BuscaDeviceIdPorNome(const ANome: string): Int64;
+    function BuscaDeviceIdPorPorta(const APorta: string): Int64;
 
     // ====== NOVO: atualizar status/ativo ======
     procedure UpdateDeviceStatus(const AIdDevice: Int64; const AAtivo: Boolean);
@@ -155,7 +158,23 @@ begin
   Result := 0;
   zqryaux.Close;
   zqryaux.SQL.Text :=
-    'select id_device from devices where nome = :n limit 1';
+    'select id_device from devices where nome like :n limit 1';
+  zqryaux.ParamByName('n').AsString := ANome;
+  try
+    zqryaux.Open;
+    if not zqryaux.IsEmpty then
+      Result := zqryaux.FieldByName('id_device').AsLargeInt;
+  except
+    Result := 0;
+  end;
+end;
+
+function TdmBase.BuscaDeviceIdPorPorta(const APorta: string): Int64;
+begin
+  Result := 0;
+  zqryaux.Close;
+  zqryaux.SQL.Text :=
+    'select id_device from devices where porta like :n limit 1';
   zqryaux.ParamByName('n').AsString := ANome;
   try
     zqryaux.Open;
@@ -832,11 +851,8 @@ begin
   try
     zqryaux.ExecSQL;
     // Se suportado pelo driver/ZEOS, usa RowsAffected; senão, considera sucesso sem exceção
-    {$IF DECLARED(TZQuery.RowsAffected)}
+
     Result := (zqryaux.RowsAffected > 0);
-    {$ELSE}
-    Result := True;
-    {$IFEND}
   except
     Result := False;
   end;

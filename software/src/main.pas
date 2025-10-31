@@ -439,7 +439,7 @@ begin
     porta := L[0];
 
     // OBS: lógica existente do seu código – busca id por "nome"
-    DevId := dmBase.BuscaDeviceIdPorNome(porta);
+    DevId := dmBase.BuscaDeviceIdPorPorta(porta);
     dmBase.serialdevid := DevId;
 
     if porta = '' then
